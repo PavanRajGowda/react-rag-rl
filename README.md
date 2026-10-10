@@ -1,1 +1,262 @@
 # FinanceRAG
+
+Elasticsearch BM25 retrieval for the **FinQA configuration only** of
+`G4KMU/t2-ragbench`. Each unique `context_id` is one indexed document. Text,
+Markdown tables, pre-text and post-text are preserved without chunking or
+truncation. Questions and answers are exported separately and never indexed.
+
+For a file-by-file explanation and architecture guide, see the single
+[technical documentation README](<technical documentation/README.md>).
+
+## Explore with Kibana
+
+Kibana is an optional, password-protected learning environment in the separate
+Modal app `finance-rag-kibana`. It starts Elasticsearch and Kibana 8.19.3
+together and indexes the same immutable FinQA corpus as the training service.
+It is a separate copy, not a live view of a training container's cluster.
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+.\.tools\uv.exe run python -m finance_rag.kibana_setup
+.\.tools\uv.exe run modal deploy modal_kibana.py
+```
+
+Open the HTTPS dashboard URL printed by the deployment. Log in as `researcher`
+using the password in `data/kibana-login.txt`. Credentials are generated
+locally, ignored by Git, and supplied to Modal as a secret. Never share the
+credential files. Elasticsearch is only accessible inside this container;
+the browser uses Kibana's native login over Modal HTTPS.
+
+In **Discover**, select **FinQA contexts**. This data view has no time field,
+so there is no date window hiding older financial reports. You should see
+**2,789 documents**. Add columns such as `company_name`, `ticker`,
+`report_year`, `page_number`, and `context_id`. Expand a row to inspect the
+complete `text`, `table_markdown`, `pre_text`, `post_text`, and source metadata.
+Try the KQL filter `ticker: "AAPL" and report_year: 2002`.
+
+In **Dev Tools → Console**, run:
+
+```http
+GET finqa-*/_count
+
+GET finqa-*/_mapping
+
+GET finqa-*/_search
+{
+  "size": 5,
+  "query": {
+    "bool": {
+      "filter": [
+        {"term": {"ticker": "AAPL"}},
+        {"term": {"report_year": 2002}}
+      ],
+      "must": [{"match": {"text": "net sales"}}]
+    }
+  }
+}
+```
+
+The researcher can read FinQA and manage Kibana views/dashboards, but cannot
+modify FinQA documents. The corpus index is also write-blocked.
+
+To verify every indexed source against the corpus, not just its count:
+
+```powershell
+.\.tools\uv.exe run python -m finance_rag.kibana_verify YOUR_KIBANA_HTTPS_URL
+```
+
+Resources: two CPU cores, 6 GB memory, zero minimum containers, one maximum,
+60-second idle scale-down. Browsing and Kibana's background browser requests
+can keep the container active and incur charges. Close the tab when finished;
+for a complete stop, use:
+
+```powershell
+.\.tools\uv.exe run modal app stop --yes finance-rag-kibana
+```
+
+Redeploy `modal_kibana.py` to make it available again. Cold startup includes
+both services and can take several minutes. FinQA and its default data view
+are recreated on each start. Custom saved dashboards currently reset on a
+container restart; durable dashboard storage can be added later.
+
+Verification: all 2,789 indexed contexts match the prepared corpus byte for
+byte after canonical JSON serialization. Native authentication protects the
+document APIs. Results are recorded in `reports/kibana-verification.json`.
+The dashboard was stopped after verification to avoid ongoing runtime charges;
+use the deployment command above when you want to explore it.
+
+## Environment
+
+Python 3.11, managed by uv. Dependencies are pinned in `uv.lock`.
+The repository-local uv executable is currently `.tools/uv.exe` on Windows;
+replace `uv` below with `.\.tools\uv.exe` if uv is not on PATH.
+
+```powershell
+uv sync --frozen
+uv run pytest -q
+uv run ruff check finance_rag tests modal_app.py modal_external.py modal_kibana.py
+```
+
+## 1. Prepare the corpus
+
+```powershell
+uv run python -m finance_rag.prepare --revision adf7fe1541ac37351ce1142544d8e3b43010ed92
+```
+
+Output in `data/finqa`: `contexts.jsonl`, `labels.jsonl`, `manifest.json`.
+The manifest records the dataset commit, content hash, counts, context lengths,
+and split overlap. Conflicting rows for a shared context ID fail ingestion.
+The audited manifest is also recorded in `reports/finqa-manifest.json`.
+Do not treat whitespace word counts as model token counts.
+
+## 2. Start Elasticsearch and index
+
+Docker Compose is for local development only; it binds an unauthenticated
+single-node Elasticsearch instance to localhost. Docker is not installed on
+the current development machine. Alternatively, configure an existing
+Elasticsearch 8.x endpoint using the environment variables below.
+
+```powershell
+docker compose up -d
+$env:ELASTICSEARCH_URL = "http://localhost:9200"
+$env:ES_REPLICAS = "0"
+uv run python -m finance_rag.index
+```
+
+For Elastic Cloud, set `ELASTICSEARCH_URL` to its HTTPS endpoint and set
+`ELASTIC_API_KEY`. Use separate indexing and read-only serving API keys.
+For a VM, use authenticated TLS Elasticsearch; do not expose the development
+Compose configuration publicly. A single-node VM needs `ES_REPLICAS=0`.
+
+The index name is the corpus version (`finqa-301676584646` for this audit).
+The indexer verifies the document count and blocks future writes. It refuses
+to overwrite an existing version. A failed partial build must be inspected
+and removed explicitly before retrying.
+
+## 3. Serve and query
+
+Environment variables are read from the process; `.env` is not auto-loaded.
+
+```powershell
+$env:SEARCH_API_TOKEN = "your-long-random-token"
+uv run uvicorn finance_rag.api:app --host 127.0.0.1 --port 8000
+```
+
+`POST /v1/search`, with `Authorization: Bearer <SEARCH_API_TOKEN>`:
+
+```json
+{"ticker":"AAPL","year":2002,"query":"net sales 2001 2000","top_k":5}
+```
+
+`year` always means **report year**, not the year of a table value. Provide
+company_name, ticker, or both. Both must identify the same company. Names are
+matched after case/punctuation normalization; tickers are case-insensitive.
+There is no fuzzy guessing or historical alias enrichment in this initial
+version. Unknown/ambiguous companies and unavailable report years are errors.
+Valid searches without matches return an empty result list. Elasticsearch
+failures and partial search responses return 503, rather than empty evidence.
+
+Results include the intact context, original table, company/report/page/source
+metadata and BM25 score. Ranking uses exact company/year filters, lexical
+matching and stable context-ID tie-breaking. `top_k` is limited to 1–10.
+The API verifies local corpus integrity and remote index metadata at startup.
+Protected `/health` checks backend connectivity; `/docs` exposes the schema.
+
+## 4. Measure retrieval
+
+```powershell
+uv run python -m finance_rag.evaluate --split dev
+```
+
+This baseline uses **gold company and report year filters** and the question
+as query. It reports Recall@5, Recall@10, MRR@10 and per-question ranks. These
+are retrieval metrics under oracle metadata, not end-to-end agent scores.
+Use dev for tuning; keep test for final evaluation. Actual audit: no shared
+context IDs across splits, but many shared reports. A report-disjoint research
+evaluation is still needed, alongside the official splits.
+The audit also found one blank test question; labels are preserved, and the
+evaluator explicitly reports its exclusion rather than inventing a query.
+
+## 5. Run Elasticsearch on Modal CPU containers (default)
+
+The default deployment uses the official Elasticsearch 8.19.3 image on Modal,
+with Python added. No Docker daemon or VM is needed. Elasticsearch runs as
+UID 1000, listens only on the container's loopback interface, and is accessed
+through an authenticated Modal class method. There is no public HTTP endpoint
+in this mode and no `finance-search` secret is required.
+
+```powershell
+uv export --frozen --no-dev --no-emit-project --output-file requirements.lock.txt --quiet
+uv run modal run modal_app.py
+uv run modal run modal_app.py --evaluate --split dev
+uv run modal deploy modal_app.py
+uv run modal run modal_app.py --verify-deployed
+```
+
+On Windows, set `$env:PYTHONIOENCODING = "utf-8"` before using the Modal CLI.
+
+Each CPU container starts Elasticsearch and indexes all 2,789 intact contexts
+before accepting searches. Index files are local to that container; they are
+rebuilt on cold start from the versioned bundled corpus. This deliberately
+avoids sharing live Lucene files across containers or committing a writable
+index to a Modal Volume. The search service bundles contexts and the manifest,
+**not QA labels**. Evaluation sends only search arguments from the local caller.
+
+Resources: two CPU cores, 4 GB RAM, 1 GB Java heap, up to 16 concurrent calls,
+one container maximum, scale to zero after 300 idle seconds. Cold starts cost
+startup/indexing time; training should issue a warmup call before GPU rollouts.
+The container's CPU/memory runtime and idle grace period incur Modal charges.
+
+Call from a Modal GPU function or a locally authenticated Modal client:
+
+```python
+import modal
+
+SearchService = modal.Cls.from_name("finance-rag-search", "SearchService")
+search = SearchService()
+result = await search.search.remote.aio({
+    "ticker": "AAPL", "year": 2002,
+    "query": "net sales 2001 2000", "top_k": 5,
+})
+```
+
+The response has `status="ok"` and complete evidence, or a structured argument
+error. Infrastructure failures raise rather than impersonating empty results.
+Deployment preserves the same company/year/query schema as the HTTP API.
+
+## Alternative: external Elasticsearch and HTTP API
+
+The original deployment is retained in `modal_external.py` under the separate
+app name `finance-rag-search-http`. For Elastic Cloud or a VM, index using
+`finance_rag.index`, configure the `finance-search` Modal secret with
+`ELASTICSEARCH_URL`, `ELASTIC_API_KEY` and `SEARCH_API_TOKEN`, then deploy
+`modal_external.py`. This uses an always-warm HTTP wrapper around a persistent
+external index. Do not deploy it when using the private default above.
+
+## Current status and remaining steps
+
+- Complete: uv environment, locked dependencies, real dataset audit/export,
+  indexer, API, retrieval evaluator, local Compose and Modal deployment code.
+- Modal search and Kibana have been deployed and verified, then stopped to
+  avoid ongoing runtime charges. Deployment definitions and historical
+  verification reports are retained in the repository.
+- Real Elasticsearch indexing and source-preservation checks passed on Modal.
+  Development baseline (883 questions, gold company/year filters): Recall@5
+  99.43%, Recall@10 100%, MRR@10 0.9363. Local-to-Modal warm request latency at
+  concurrency eight: median 177 ms, p95 212 ms. First call including startup
+  took 42 seconds. These are retrieval metrics, not LLM answer accuracy.
+- A second Modal CPU container successfully called the deployed search class:
+  first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
+  in `reports/modal-deployed.json`; no GPU was required for this connectivity
+  check. Actual GPU rollout throughput remains to be measured.
+- Twelve component tests and lint checks pass. Startup requires
+  `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
+  Elasticsearch's entitlement protections remain enabled.
+- The default hosting target is Modal CPU containers; VM provisioning is no
+  longer required. Review measured cold-start and retrieval latency before
+  increasing rollout concurrency.
+- Later: company aliases, batch search, report-disjoint evaluation, model
+  token-budget checks and Search-R1-style training integration. The model
+  should generate tool arguments; hidden gold metadata must not fill them in
+  during end-to-end experiments. Keep retrieved observations out of policy
+  generated-token loss.
