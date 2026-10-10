@@ -9,6 +9,7 @@ from pathlib import Path
 import requests
 
 from finance_rag.embedded import EmbeddedSearch
+from finance_rag.search import index_name
 
 
 class KibanaStack:
@@ -135,7 +136,7 @@ class KibanaStack:
             response = requests.get(base + "/api/data_views", timeout=10)
             if response.status_code != 401:
                 raise RuntimeError("Kibana data API is not protected by authentication")
-            count = es.count(index=self.engine.manifest["corpus_version"])["count"]
+            count = es.count(index=index_name(self.engine.manifest))["count"]
             if count != self.engine.manifest["unique_contexts"]:
                 raise RuntimeError("FinQA index count mismatch")
             print(

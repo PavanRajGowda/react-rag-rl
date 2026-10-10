@@ -128,7 +128,10 @@ For Elastic Cloud, set `ELASTICSEARCH_URL` to its HTTPS endpoint and set
 For a VM, use authenticated TLS Elasticsearch; do not expose the development
 Compose configuration publicly. A single-node VM needs `ES_REPLICAS=0`.
 
-The index name is the corpus version (`finqa-301676584646` for this audit).
+The corpus version remains `finqa-301676584646`; the current index name is
+`finqa-301676584646-search-v2`, including the company-resolution schema version.
+Existing indexes with keyword-only company names must be reindexed into the new
+name. Modal containers build it automatically after a fresh deployment.
 The indexer verifies the document count and blocks future writes. It refuses
 to overwrite an existing version. A failed partial build must be inspected
 and removed explicitly before retrying.
@@ -149,10 +152,16 @@ uv run uvicorn finance_rag.api:app --host 127.0.0.1 --port 8000
 ```
 
 `year` always means **report year**, not the year of a table value. Provide
-company_name, ticker, or both. Both must identify the same company. Names are
-matched after case/punctuation normalization; tickers are case-insensitive.
-There is no fuzzy guessing or historical alias enrichment in this initial
-version. Unknown/ambiguous companies and unavailable report years are errors.
+company_name, ticker, or both. Both must identify the same company. Names use
+Elasticsearch's standard analyzed text matching: `apple` can match `Apple Inc.`.
+For multiple words, every analyzed word must match (`operator: and`). Tickers
+remain case-insensitive exact matches. No fuzzy guessing or historical alias
+enrichment is applied. Ambiguous names return `ambiguous_company` with a
+`candidates` list containing each unique company's `company_name`, `ticker`,
+and `company_id`, so the caller can reformulate using a fuller name or ticker.
+Company matching searches all companies before validating the report year;
+the year does not silently select between ambiguous identities.
+Unknown companies and unavailable report years are also explicit errors.
 Valid searches without matches return an empty result list. Elasticsearch
 failures and partial search responses return 503, rather than empty evidence.
 
@@ -191,6 +200,7 @@ uv run modal run modal_app.py
 uv run modal run modal_app.py --evaluate --split dev
 uv run modal deploy modal_app.py
 uv run modal run modal_app.py --verify-deployed
+uv run modal run modal_app.py --verify-companies
 ```
 
 On Windows, set `$env:PYTHONIOENCODING = "utf-8"` before using the Modal CLI.
@@ -249,7 +259,7 @@ external index. Do not deploy it when using the private default above.
   first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
   in `reports/modal-deployed.json`; no GPU was required for this connectivity
   check. Actual GPU rollout throughput remains to be measured.
-- Twelve component tests and lint checks pass. Startup requires
+- Eighteen component tests and lint checks pass. Startup requires
   `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
   Elasticsearch's entitlement protections remain enabled.
 - The default hosting target is Modal CPU containers; VM provisioning is no

@@ -17,6 +17,7 @@ from finance_rag.search import (
     Registry,
     SearchError,
     SearchRequest,
+    index_name,
     load_docs,
     query_body,
 )
@@ -120,13 +121,15 @@ class EmbeddedSearch:
     def search(self, payload):
         try:
             request = SearchRequest.model_validate(payload)
-            company = self.registry.resolve(request)
+            company = self.registry.resolve(
+                request, es=self.es, index=index_name(self.manifest)
+            )
         except ValidationError as exc:
             return {"status": "error", "code": "invalid_request", "message": str(exc)}
         except SearchError as exc:
-            return {"status": "error", "code": exc.code, "message": exc.message}
+            return {"status": "error"} | exc.as_dict()
         response = self.es.search(
-            index=self.manifest["corpus_version"], **query_body(request, company)
+            index=index_name(self.manifest), **query_body(request, company)
         )
         if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
             raise RuntimeError("Incomplete Elasticsearch response")

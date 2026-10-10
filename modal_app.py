@@ -79,7 +79,55 @@ class SearchService:
 
 
 @app.local_entrypoint()
-def main(evaluate: bool = False, split: str = "dev", verify_deployed: bool = False):
+def main(
+    evaluate: bool = False,
+    split: str = "dev",
+    verify_deployed: bool = False,
+    verify_companies: bool = False,
+):
+    if verify_companies:
+        service = SearchService()
+        request = {"company_name": "apple", "year": 2002, "query": "net sales"}
+        apple = service.search.remote(request)
+        if (
+            apple.get("status") != "ok"
+            or apple["resolved_company"]["ticker"] != "AAPL"
+            or not apple["results"]
+        ):
+            raise RuntimeError("Short company name failed to resolve Apple")
+        ambiguous = service.search.remote(request | {"company_name": "American"})
+        if (
+            ambiguous.get("code") != "ambiguous_company"
+            or len(ambiguous.get("candidates", [])) < 2
+        ):
+            raise RuntimeError("Ambiguous company did not return candidates")
+        if any(
+            not {"company_name", "company_id", "ticker"} <= x.keys()
+            for x in ambiguous["candidates"]
+        ):
+            raise RuntimeError("Candidate metadata is incomplete")
+        refined = service.search.remote(
+            request | {"company_name": "APPLE, INC.", "ticker": "aapl"}
+        )
+        if (
+            refined.get("status") != "ok"
+            or refined["resolved_company"]["ticker"] != "AAPL"
+        ):
+            raise RuntimeError("Refined company name did not resolve")
+        report = {
+            "corpus_version": apple["corpus_version"],
+            "short_name": "apple",
+            "resolved_company": apple["resolved_company"],
+            "results": len(apple["results"]),
+            "ambiguity": ambiguous,
+            "refined_name_and_ticker": True,
+        }
+        (root / "reports").mkdir(exist_ok=True)
+        (root / "reports/company-resolution-smoke.json").write_text(
+            json.dumps(report, indent=2), encoding="utf-8"
+        )
+        print(json.dumps(report, indent=2))
+        return
     if verify_deployed:
         verification = verify_training_call.remote()
         (root / "reports").mkdir(exist_ok=True)

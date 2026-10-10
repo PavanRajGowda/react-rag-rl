@@ -1,14 +1,38 @@
 """Company resolution and exact-filter BM25 search."""
 
 import json
-import re
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+SEARCH_SCHEMA_VERSION = 2
 
-def normalize(value):
-    return re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+
+def index_name(manifest):
+    return f"{manifest['corpus_version']}-search-v{SEARCH_SCHEMA_VERSION}"
+
+
+def company_name_query(name, company_count):
+    return {
+        "size": 0,
+        "query": {"match": {"company_name": {"query": name, "operator": "and"}}},
+        "aggs": {
+            "companies": {
+                "terms": {"field": "company_id", "size": max(1, company_count)}
+            }
+        },
+    }
+
+
+def company_candidates(response):
+    if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
+        raise RuntimeError("Incomplete company-name search")
+    result = response["aggregations"]["companies"]
+    if result.get("sum_other_doc_count", 0) or result.get(
+        "doc_count_error_upper_bound", 0
+    ):
+        raise RuntimeError("Incomplete company candidates")
+    return {bucket["key"] for bucket in result["buckets"]}
 
 
 class SearchRequest(BaseModel):
@@ -36,40 +60,54 @@ class SearchRequest(BaseModel):
 
 
 class SearchError(Exception):
-    def __init__(self, code, message, status=422):
+    def __init__(self, code, message, status=422, candidates=None):
         self.code, self.message, self.status = code, message, status
+        self.candidates = candidates
+
+    def as_dict(self):
+        result = {"code": self.code, "message": self.message}
+        if self.candidates is not None:
+            result["candidates"] = self.candidates
+        return result
 
 
 class Registry:
     def __init__(self, docs):
-        self.names, self.tickers, self.companies, self.years = {}, {}, {}, {}
+        self.tickers, self.companies, self.years = {}, {}, {}
         for doc in docs:
             key = doc["company_id"]
-            self.names.setdefault(normalize(doc["company_name"]), set()).add(key)
             self.tickers.setdefault(doc["ticker"].upper(), set()).add(key)
             self.companies[key] = {
                 k: doc[k] for k in ("company_id", "company_name", "ticker")
             }
             self.years.setdefault(key, set()).add(doc["report_year"])
 
-    def resolve(self, request):
+    def resolve(self, request, es=None, index=None, name_candidates=None):
         matches = []
-        for value, mapping in (
-            (
-                normalize(request.company_name) if request.company_name else None,
-                self.names,
-            ),
-            (request.ticker.upper() if request.ticker else None, self.tickers),
-        ):
-            if value is not None:
-                candidates = mapping.get(value, set())
-                if not candidates:
-                    raise SearchError(
-                        "unknown_company",
-                        "Company name or ticker is not in the corpus",
-                        404,
+        if request.company_name:
+            if name_candidates is None:
+                if es is None or index is None:
+                    raise RuntimeError("Company-name resolution requires Elasticsearch")
+                name_candidates = company_candidates(
+                    es.search(
+                        index=index,
+                        **company_name_query(request.company_name, len(self.companies)),
                     )
-                matches.append(candidates)
+                )
+            if not name_candidates:
+                raise SearchError(
+                    "unknown_company",
+                    "No company name matched; try a fuller name or ticker",
+                    404,
+                )
+            if not name_candidates <= self.companies.keys():
+                raise RuntimeError("Company candidates do not match local registry")
+            matches.append(name_candidates)
+        if request.ticker:
+            candidates = self.tickers.get(request.ticker.upper(), set())
+            if not candidates:
+                raise SearchError("unknown_company", "Ticker is not in the corpus", 404)
+            matches.append(candidates)
         candidates = set.intersection(*matches)
         if not candidates:
             raise SearchError(
@@ -78,7 +116,16 @@ class Registry:
             )
         if len(candidates) != 1:
             raise SearchError(
-                "ambiguous_company", "Company identifier matches multiple companies"
+                "ambiguous_company",
+                "Multiple companies matched; use a fuller company name or one of the candidate tickers",
+                candidates=sorted(
+                    (self.companies[key] for key in candidates),
+                    key=lambda x: (
+                        x["company_name"].casefold(),
+                        x["ticker"],
+                        x["company_id"],
+                    ),
+                ),
             )
         key = next(iter(candidates))
         if request.year not in self.years[key]:

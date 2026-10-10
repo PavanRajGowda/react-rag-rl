@@ -5,7 +5,7 @@ from pathlib import Path
 
 from elasticsearch import Elasticsearch, helpers
 
-from finance_rag.search import load_docs
+from finance_rag.search import SEARCH_SCHEMA_VERSION, index_name, load_docs
 
 
 def client():
@@ -29,7 +29,7 @@ def index_corpus(directory, es=None):
     directory = Path(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
     docs = load_docs(directory)
-    index = manifest["corpus_version"]
+    index = index_name(manifest)
     owns_client = es is None
     es = es if es is not None else client()
     try:
@@ -38,6 +38,11 @@ def index_corpus(directory, es=None):
                 f"Index {index} already exists; use it or create a new version"
             )
         properties = {k: {"type": "keyword"} for k in docs[0]}
+        properties["company_name"] = {
+            "type": "text",
+            "analyzer": "standard",
+            "fields": {"keyword": {"type": "keyword"}},
+        }
         for key in ("text", "table_markdown", "pre_text", "post_text"):
             properties[key] = {
                 "type": "text",
@@ -51,7 +56,11 @@ def index_corpus(directory, es=None):
                 "number_of_shards": 1,
                 "number_of_replicas": int(os.environ.get("ES_REPLICAS", "1")),
             },
-            mappings={"dynamic": "strict", "_meta": manifest, "properties": properties},
+            mappings={
+                "dynamic": "strict",
+                "_meta": manifest | {"search_schema_version": SEARCH_SCHEMA_VERSION},
+                "properties": properties,
+            },
         )
         helpers.bulk(
             es, ({"_index": index, "_id": d["context_id"], "_source": d} for d in docs)

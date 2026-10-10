@@ -5,7 +5,13 @@ import json
 from pathlib import Path
 
 from finance_rag.index import client
-from finance_rag.search import Registry, SearchRequest, load_docs, query_body
+from finance_rag.search import (
+    Registry,
+    SearchRequest,
+    index_name,
+    load_docs,
+    query_body,
+)
 
 
 def main():
@@ -40,7 +46,7 @@ def main():
             )
             company = registry.resolve(request)
             response = es.search(
-                index=manifest["corpus_version"], **query_body(request, company)
+                index=index_name(manifest), **query_body(request, company)
             )
             if response.get("timed_out") or response.get("_shards", {}).get(
                 "failed", 0

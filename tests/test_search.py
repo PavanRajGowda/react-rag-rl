@@ -8,7 +8,13 @@ from pydantic import ValidationError
 
 from finance_rag.api import create_app
 from finance_rag.prepare import prepare
-from finance_rag.search import Registry, SearchError, SearchRequest, query_body
+from finance_rag.search import (
+    Registry,
+    SearchError,
+    SearchRequest,
+    index_name,
+    query_body,
+)
 from tests.helpers import sample
 
 
@@ -40,7 +46,7 @@ def test_registry_and_filters(tmp_path):
     request = SearchRequest(
         company_name="APPLE, INC", ticker="aapl", year=2002, query="revenue"
     )
-    company = registry.resolve(request)
+    company = registry.resolve(request, name_candidates={"cik:320193"})
     body = query_body(request, company)
     assert body["query"]["bool"]["filter"] == [
         {"term": {"company_id": "cik:320193"}},
@@ -52,7 +58,10 @@ def test_registry_and_filters(tmp_path):
         ({"ticker": "AAPL", "year": 2003}, "report_year_unavailable"),
     ]:
         with pytest.raises(SearchError) as exc:
-            registry.resolve(SearchRequest(**({"year": 2002, "query": "x"} | args)))
+            registry.resolve(
+                SearchRequest(**({"year": 2002, "query": "x"} | args)),
+                name_candidates={"cik:320193"} if args.get("company_name") else None,
+            )
         assert exc.value.code == code
 
 
@@ -65,7 +74,9 @@ def test_api_auth_preservation_empty_and_failure(tmp_path, monkeypatch):
         indices=SimpleNamespace(
             get_mapping=AsyncMock(
                 return_value={
-                    manifest["corpus_version"]: {"mappings": {"_meta": manifest}}
+                    index_name(manifest): {
+                        "mappings": {"_meta": manifest | {"search_schema_version": 2}}
+                    }
                 }
             )
         ),

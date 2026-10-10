@@ -7,6 +7,8 @@ from pathlib import Path
 
 import requests
 
+from finance_rag.search import index_name
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -47,14 +49,14 @@ def main():
             raise RuntimeError("FinQA data view missing")
         count_response = session.post(
             base + "/api/console/proxy",
-            params={"path": manifest["corpus_version"] + "/_count", "method": "GET"},
+            params={"path": index_name(manifest) + "/_count", "method": "GET"},
             timeout=60,
         )
         count_response.raise_for_status()
         count = count_response.json()["count"]
         search = session.post(
             base + "/api/console/proxy",
-            params={"path": manifest["corpus_version"] + "/_search", "method": "POST"},
+            params={"path": index_name(manifest) + "/_search", "method": "POST"},
             json={"size": 3000, "query": {"match_all": {}}},
             timeout=60,
         )

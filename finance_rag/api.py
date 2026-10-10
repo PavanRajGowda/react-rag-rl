@@ -12,9 +12,13 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from finance_rag.search import (
+    SEARCH_SCHEMA_VERSION,
     Registry,
     SearchError,
     SearchRequest,
+    company_candidates,
+    company_name_query,
+    index_name,
     load_docs,
     query_body,
 )
@@ -31,6 +35,7 @@ def create_app(directory=None, es_client=None):
         app.state.token = token
         app.state.registry = Registry(load_docs(directory))
         app.state.manifest = json.loads((directory / "manifest.json").read_text())
+        app.state.index = index_name(app.state.manifest)
         digest = hashlib.sha256((directory / "contexts.jsonl").read_bytes()).hexdigest()
         if digest != app.state.manifest["sha256"]:
             raise RuntimeError("Local contexts do not match corpus manifest")
@@ -43,17 +48,20 @@ def create_app(directory=None, es_client=None):
         )
         app.state.limit = asyncio.Semaphore(32)
         try:
-            mapping = await app.state.es.indices.get_mapping(
-                index=app.state.manifest["corpus_version"]
-            )
+            mapping = await app.state.es.indices.get_mapping(index=app.state.index)
             if (
-                mapping[app.state.manifest["corpus_version"]]["mappings"]["_meta"][
-                    "sha256"
-                ]
+                mapping[app.state.index]["mappings"]["_meta"]["sha256"]
                 != app.state.manifest["sha256"]
             ):
                 raise RuntimeError("Remote index does not match local corpus manifest")
-            count = await app.state.es.count(index=app.state.manifest["corpus_version"])
+            if (
+                mapping[app.state.index]["mappings"]["_meta"].get(
+                    "search_schema_version"
+                )
+                != SEARCH_SCHEMA_VERSION
+            ):
+                raise RuntimeError("Remote index has an incompatible search schema")
+            count = await app.state.es.count(index=app.state.index)
             if count["count"] != app.state.manifest["unique_contexts"]:
                 raise RuntimeError("Remote index is incomplete")
             yield
@@ -81,15 +89,28 @@ def create_app(directory=None, es_client=None):
     @app.post("/v1/search", dependencies=[Depends(auth)])
     async def search(request: SearchRequest):
         try:
-            company = app.state.registry.resolve(request)
+            async with app.state.limit:
+                candidates = (
+                    company_candidates(
+                        await app.state.es.search(
+                            index=app.state.index,
+                            **company_name_query(
+                                request.company_name, len(app.state.registry.companies)
+                            ),
+                        )
+                    )
+                    if request.company_name
+                    else None
+                )
+            company = app.state.registry.resolve(request, name_candidates=candidates)
         except SearchError as exc:
-            raise HTTPException(
-                exc.status, detail={"code": exc.code, "message": exc.message}
-            ) from exc
+            raise HTTPException(exc.status, detail=exc.as_dict()) from exc
+        except Exception as exc:
+            raise HTTPException(503, detail={"code": "search_unavailable"}) from exc
         try:
             async with app.state.limit:
                 response = await app.state.es.search(
-                    index=app.state.manifest["corpus_version"],
+                    index=app.state.index,
                     **query_body(request, company),
                 )
             if response.get("timed_out") or response.get("_shards", {}).get(

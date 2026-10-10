@@ -68,7 +68,8 @@ the same process, client connection pool, registry, and immutable index.
    corpus hash, dataset counts, and split-overlap statistics.
 
 The audited revision is `adf7fe1541ac37351ce1142544d8e3b43010ed92` and the
-corpus/index version is `finqa-301676584646`. The CLI's default revision is
+corpus version is `finqa-301676584646`. The current index name appends the search
+schema: `finqa-301676584646-search-v2`. The CLI's default revision is
 `main`; pass the audited SHA to reproduce these exact artifacts.
 
 ### Search handling
@@ -76,8 +77,11 @@ corpus/index version is `finqa-301676584646`. The CLI's default revision is
 1. `SearchRequest` validates the arguments. At least one company identifier,
    an integer report year, and a nonblank query are required. Extra fields
    are rejected. `top_k` defaults to 5 and is bounded to 1–10.
-2. `Registry` resolves normalized names/tickers to a company ID, checks that
-   two supplied identifiers agree, and verifies the report year exists.
+2. Elasticsearch performs analyzed `match` on `company_name` using the standard
+   analyzer and `operator: and`. An aggregation collects all distinct matching
+   company IDs, independently of report year or requested result count.
+   `Registry` intersects those candidates with an optional exact ticker,
+   returns names/tickers/IDs when ambiguity remains, and checks the report year.
 3. `query_body()` applies exact company-ID and report-year filters, then
    BM25 matching over `text` and `table_markdown` with `multi_match`.
 4. Results sort by descending score and then ascending `context_id`, providing
@@ -85,8 +89,11 @@ corpus/index version is `finqa-301676584646`. The CLI's default revision is
 
 **Year means the year of the report.** A 2002 report may contain financial
 figures for 2001 and 2000; those financial periods belong in the query.
-Company resolution currently uses normalized exact matches, not fuzzy search
-or a curated historical alias database.
+Short names such as `apple` match full names containing that word. Every word
+in a multiword name must match. This is analyzed word matching, not fuzzy or
+substring matching; historical aliases are still not curated. Partial or
+truncated company aggregations are infrastructure errors, not a reason to
+choose one company silently.
 
 ## 4. File-by-file map
 
@@ -140,11 +147,12 @@ corresponding commits. This organization preserves their test logic.
 | `tests/helpers.py` | Synthetic context with a table, parentheses/signs, units, and a footnote; used by component tests |
 | `tests/test_prepare.py` | Exact text/table preservation, QA-label separation, deduplication, split overlap, byte-level checksum, and conflicting-context rejection |
 | `tests/test_search.py` | Required fields and bounds, company resolution, metadata filters, HTTP authentication, complete responses, legitimate empty results, and backend failure status |
+| `tests/test_company_matching.py` | Analyzed query construction, distinct-company ambiguity, candidate metadata, ticker refinement, both API error formats, and partial-candidate failure handling |
 | `tests/test_index.py` | Indexing retains ownership of an injected authenticated client and supplies the intended source documents to bulk indexing |
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The suite collects 12 test cases, including five parameterized validation
+The suite collects 18 test cases, including five parameterized validation
 cases. Most tests inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 
@@ -157,6 +165,7 @@ Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 | `reports/modal-retrieval-dev.json` | Metrics and per-question ranks/latencies for 883 development questions | Gold company/year filters and question-as-query; measures retrieval, not model tool selection or answer correctness |
 | `reports/modal-deployed.json` | A second Modal container successfully calls the deployed search class | Confirms the same connection pattern intended for a future GPU caller; no GPU was used |
 | `reports/kibana-verification.json` | Count, cookie login, unauthenticated 401, data view, and exact corpus-hash match | Confirms every indexed context matched the prepared corpus in the verified dashboard instance |
+| `reports/company-resolution-smoke.json` | Real Elasticsearch resolves `apple`, reports all matching American companies, and accepts a refined name/ticker | Verifies the analyzed company mapping and ambiguity feedback under search schema v2 |
 
 Reports are historical artifacts. Starting a new deployment or changing
 configuration requires fresh verification; an old report does not check a
@@ -182,14 +191,18 @@ currently running instance.
 
 | Fields | Mapping | Why |
 |---|---|---|
-| Company/report/context identifiers, ticker, company name, CIK, and source path | `keyword` | Exact filtering, stable identifiers, stored source metadata |
+| Company/report/context identifiers, ticker, CIK, and source path | `keyword` | Exact filtering, stable identifiers, stored source metadata |
+| `company_name` | `text` with standard analyzer and a `keyword` subfield | Analyzed company-name resolution; use `company_name.keyword` for exact matching/aggregations |
 | `report_year`, `page_number` | `integer` | Numeric metadata with explicit conversion during preparation |
 | `text`, `table_markdown` | `text` | BM25 retrieval over narrative and tabular content |
 | `pre_text`, `post_text` | `text` with indexing disabled | Preserve separately in `_source`; their narrative is already represented in the full context |
 
 Mappings are strict: unexpected fields are rejected. The manifest is stored
-in mapping `_meta`. The index name comes from a hash of contexts sorted by
-ID, serialized with sorted JSON keys and UTF-8/LF bytes. The HTTP API and
+in mapping `_meta`, alongside `search_schema_version: 2`. The index name comes from a hash of contexts sorted by
+ID, serialized with sorted JSON keys and UTF-8/LF bytes, plus a schema suffix.
+The corpus hash is unchanged by this mapping update. Old indexes must be
+rebuilt under the new name; the HTTP API rejects incompatible schemas.
+The HTTP API and
 embedded service check local integrity before serving; indexing checks the
 document count and blocks later writes. The HTTP API additionally checks
 remote metadata/count. The Kibana verifier reconstructs the complete corpus
