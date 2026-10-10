@@ -1,0 +1,38 @@
+{
+  "dataset": "G4KMU/t2-ragbench",
+  "revision": "adf7fe1541ac37351ce1142544d8e3b43010ed92",
+  "corpus_version": "finqa-301676584646",
+  "sha256": "301676584646d68094649e144c1dd88153e4683670a7c87002710b2bd800b32f",
+  "split_questions": {
+    "train": 6251,
+    "dev": 883,
+    "test": 1147
+  },
+  "blank_question_ids": [
+    "finqa_test_490"
+  ],
+  "unique_contexts": 2789,
+  "unique_reports": 799,
+  "duplicate_context_rows": 5492,
+  "context_split_overlap": {
+    "train": 2110,
+    "dev": 299,
+    "test": 380
+  },
+  "report_split_overlap": {
+    "train": 390,
+    "test+train": 154,
+    "dev+test+train": 89,
+    "dev+train": 108,
+    "dev": 23,
+    "dev+test": 4,
+    "test": 31
+  },
+  "whitespace_words": {
+    "min": 98,
+    "median": 715,
+    "p95": 1107,
+    "max": 2701
+  },
+  "chunking": false
+}
