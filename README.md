@@ -8,6 +8,53 @@ truncation. Questions and answers are exported separately and never indexed.
 For a file-by-file explanation and architecture guide, see the single
 [technical documentation README](<technical documentation/README.md>).
 
+## One-question multi-turn RAG baseline
+
+`baseline_agent/` contains a Search-R1-style inference controller for
+`Qwen/Qwen3.5-2B`. It loads one question from the pinned FinQA **test** split,
+without putting gold context, answers, company metadata, or year metadata in
+the model prompt. The model generates company/year/query tags and receives
+evidence from the existing private Modal search service. Numeric scoring is
+deliberately deferred.
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+.\.tools\uv.exe run modal deploy modal_app.py
+.\.tools\uv.exe run modal run baseline_agent/modal_app.py
+```
+
+The default selects test index 0 and permits up to six searches. It prints
+the model's generated reasoning steps, search arguments, and full information
+blocks. The model runs on a temporary **T4 in FP16**; its exact revision is
+recorded. Weights download on CPU into the `finance-rag-qwen-cache` Modal Volume
+before a GPU is allocated. This is inference only, not RL training.
+
+Results are saved in ignored `data/baseline/finqa_test_0-replace.json` and `.txt`.
+The JSON includes each actual model input, output, API response, timing, and
+token counts. The text file is a readable complete interaction transcript.
+Each completed run is archived under `data/baseline/runs/` with a unique run
+ID, preserving traces from earlier experiments.
+Only the newest information block remains in the active prompt by default;
+generated reasoning/search history is retained. To use Search-R1's accumulating
+history, add `--context-mode append`. To select another single question later,
+use `--example-index N`; this command never runs the full test set.
+
+The GPU job stops when the run completes. Stop the deployed CPU service too
+when finished to prevent new calls from waking it:
+
+```powershell
+.\.tools\uv.exe run modal app stop --yes finance-rag-search
+```
+
+GPU dependencies have a separate `baseline_agent/pyproject.toml` and `uv.lock`;
+they are not installed in the local search environment. Regenerate the GPU
+export with:
+
+```powershell
+.\.tools\uv.exe lock --project baseline_agent
+.\.tools\uv.exe export --project baseline_agent --frozen --no-dev --no-emit-project --emit-index-url --output-file baseline_agent/requirements.gpu.lock.txt --quiet
+```
+
 ## Explore with Kibana
 
 Kibana is an optional, password-protected learning environment in the separate
@@ -259,7 +306,7 @@ external index. Do not deploy it when using the private default above.
   first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
   in `reports/modal-deployed.json`; no GPU was required for this connectivity
   check. Actual GPU rollout throughput remains to be measured.
-- Eighteen component tests and lint checks pass. Startup requires
+- Twenty-five component tests and lint checks pass. Startup requires
   `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
   Elasticsearch's entitlement protections remain enabled.
 - The default hosting target is Modal CPU containers; VM provisioning is no

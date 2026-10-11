@@ -17,16 +17,18 @@ contexts are extracted text-and-table units, not complete 10-K filings.
 We do not split them into smaller chunks. Questions and answers are kept
 outside the retrieval index.
 
-The repository does not yet contain the Qwen model, GPU rollout scheduler,
+The repository now contains a one-question Qwen inference baseline in
+`baseline_agent/`. It does not yet contain the GPU rollout scheduler,
 reinforcement-learning trainer, rewards, or training checkpoints.
 
-## 2. The three ways to use the system
+## 2. Execution modes
 
 | Mode | Entry point | Purpose | Elasticsearch location |
 |---|---|---|---|
 | Private Modal search | `modal_app.py` | Intended tool for future GPU rollouts | Inside each CPU search container |
 | HTTP API | `finance_rag/api.py`, optionally `modal_external.py` | Local development or an external persistent Elasticsearch service | Local Docker, a VM, or Elastic Cloud |
 | Kibana explorer | `modal_kibana.py` | Browse contexts in Discover and experiment in Dev Tools | A separate secured copy inside the dashboard container |
+| Baseline inference | `baseline_agent/modal_app.py` | One FinQA test question on a T4, with multi-turn generation/search | Calls the independently deployed private search service |
 
 Kibana does not inspect the live cluster in a training search container.
 Its copy is built from the same corpus and hash, so it is useful for reviewing
@@ -152,8 +154,9 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The suite collects 18 test cases, including five parameterized validation
-cases. Most tests inject a fake client; they do not start Java, Docker,
+The full suite collects 25 test cases, including five parameterized validation
+cases and seven baseline-controller tests documented in section 9. Most tests
+inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 
 ### Saved verification reports
@@ -166,6 +169,7 @@ Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 | `reports/modal-deployed.json` | A second Modal container successfully calls the deployed search class | Confirms the same connection pattern intended for a future GPU caller; no GPU was used |
 | `reports/kibana-verification.json` | Count, cookie login, unauthenticated 401, data view, and exact corpus-hash match | Confirms every indexed context matched the prepared corpus in the verified dashboard instance |
 | `reports/company-resolution-smoke.json` | Real Elasticsearch resolves `apple`, reports all matching American companies, and accepts a refined name/ticker | Verifies the analyzed company mapping and ambiguity feedback under search schema v2 |
+| `reports/baseline-smoke.json` | First test question, pinned model/config, five tool attempts, six generations, and ungraded answer | Operational T4 test after debugging this same example; does not measure accuracy or evaluate the test split |
 
 Reports are historical artifacts. Starting a new deployment or changing
 configuration requires fresh verification; an old report does not check a
@@ -310,3 +314,96 @@ For local verification:
 Use an installed `uv` command instead of `.tools/uv.exe` on another machine.
 These checks do not redeploy Modal or start cloud compute. The root README
 explains the commands that do start services.
+
+## 9. One-question multi-turn baseline agent
+
+The separate `baseline_agent/` package implements inference only. It adapts
+the generation → search → information → generation interaction in
+[Search-R1's inference example](https://github.com/PeterGriffinJin/Search-R1/blob/main/infer.py)
+to the financial search API's company/year/query contract. This is not a port
+of the Search-R1 RL trainer and does not load a Search-R1-trained checkpoint.
+The model is the requested post-trained `Qwen/Qwen3.5-2B`.
+
+| File | Responsibility and relationships |
+|---|---|
+| `baseline_agent/__init__.py` | Package marker; GPU libraries are imported lazily so local controller tests do not require Torch |
+| `baseline_agent/pyproject.toml` | Separate Linux GPU dependency definitions: Torch 2.10 CUDA 12.8, Transformers 5.3, Accelerate, Hugging Face Hub, and Modal |
+| `baseline_agent/uv.lock` | Exact independent GPU dependency resolution; does not change the root search-service lockfile |
+| `baseline_agent/requirements.gpu.lock.txt` | Hash-bearing export with the PyTorch CUDA index; installed by the GPU Modal image |
+| `baseline_agent/data.py` | Loads one row from the pinned test split and whitelists only question, ID, and provenance metadata for the GPU call; rejects a blank selected question |
+| `baseline_agent/prompt.py` | Financial-agent instructions, tagged generated steps, structured search syntax, evidence-only answering, and final-answer formatting; no gold context or answers |
+| `baseline_agent/protocol.py` | Parses only new generated actions, rejects fabricated information blocks, renders each retrieved context once, and selects append/replace history |
+| `baseline_agent/agent.py` | Bounded controller with injectable generator/search callbacks, search limits, ambiguity feedback, evidence-before-answer gating, and recorded model inputs/outputs; no numeric score |
+| `baseline_agent/inference.py` | Loads the native Qwen3.5 conditional-generation architecture in FP16 on CUDA, uses SDPA attention and streaming output, and stops at closing search/answer tags |
+| `baseline_agent/modal_app.py` | CPU model download into a persistent cache Volume, temporary T4 inference, private Modal search calls, single-example CLI, and local transcript output |
+| `tests/test_baseline_agent.py` | Tests question whitelisting, tag parsing, duplicate-free information, rolling history, fresh Qwen chat turns, ambiguity/refinement, evidence gating, and infrastructure-failure propagation |
+
+The model emits:
+
+```xml
+<reasoning><step>Identify the evidence needed.</step></reasoning>
+<search><company>Company name</company><year>2015</year><query>net revenue change</query></search>
+```
+
+Generation stops at `</search>`. The controller parses the child tags and
+calls `SearchService.search.remote()` with model-chosen arguments and the
+configured `top_k`. Only actual service output is formatted inside
+`<information>...</information>`. Candidate-company errors are supplied as
+information so the model can reformulate. Infrastructure exceptions abort the
+debugging run rather than being presented as evidence or a negative reward.
+Generation then continues from the resulting prompt. An `<answer>` ends the
+episode after at least one nonempty successful retrieval.
+
+The initial prompt contains the question only. It never receives the row's
+gold context, answer, company name, ticker, or report year. The readiness probe
+uses an unrelated Apple query to warm the CPU service before a T4 is allocated;
+its output is discarded and never reaches the model.
+
+The native Qwen chat template is rebuilt with `enable_thinking=False` for
+each generation. Model outputs become assistant messages; observations become
+user messages containing the `<information>` block and a continuation request.
+This preserves the Search-R1 generation/search interaction while adapting its
+raw assistant-continuation format to the requested ordinary chat checkpoint.
+An initial test of raw continuation produced immediate EOS after evidence.
+The assistant prefix is prefilled with `<reasoning><step>` to encourage visible
+step text; the prefill is logged separately from generated tokens, and no
+reasoning content is fabricated by the controller. Native thinking mode is
+not enabled. Each generation uses a fresh prompt/KV cache so removed information
+is actually absent in replace mode.
+
+Default settings: test example index 0, five results per search, at most six
+searches/eight generation turns, 1,024 new tokens per turn, and an 8,192-token
+input-plus-generation budget. Sampling uses seed 42, temperature 0.2,
+top-p 0.95, top-k 20, and repetition penalty 1.05. The exact model revision is
+resolved and recorded for the run. GPU kernels can still introduce numerical
+nondeterminism. FP16 is used because the requested T4 does not have native
+BF16 support; FlashAttention-specific dependencies are not required.
+
+Default `context_mode=replace` retains generated history and only the newest
+API information block. Local controller feedback is retained separately and
+does not replace retrieved evidence. `--context-mode append` retains all information blocks and
+is closer to the original Search-R1 example. Full trajectories and actual
+model inputs are stored externally in both modes. A token-budget violation
+stops with `context_limit`; no table or context is silently truncated.
+
+Local outputs are ignored files under `data/baseline/`: a JSON record of the
+question, config, inputs, outputs, searches, timings and token counts, plus a
+readable text transcript. Completed runs are archived under
+`data/baseline/runs/` with unique run IDs. Numeric scoring, strict final-output grading, the
+user-provided Number Match metric, and full-test-set evaluation are deferred.
+Protocol parsing exists only to execute valid actions safely.
+
+Weights are cached in the `finance-rag-qwen-cache` Modal Volume. A CPU function
+downloads the snapshot before the GPU function starts. The T4 runs only for
+one selected question and stops when the temporary run completes. The separate
+deployed CPU search service should be stopped explicitly after experimentation
+if it should not be callable. This implementation is a debugging baseline,
+not a multi-hour training infrastructure or throughput benchmark.
+
+Live smoke test: `finqa_test_0` completed on a Tesla T4 with five search attempts
+and six generations, returning `<answer>94</answer>`. The first four requests
+encountered unknown-company or unavailable-report-year errors; the fifth
+retrieved real evidence. This same question was used for iterative operational
+debugging, so the result is not an unbiased accuracy estimate. Numeric and
+strict output-format validation were not performed. See the saved summary and
+the local generated transcript for the actual interactions.
