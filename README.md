@@ -24,7 +24,7 @@ $env:PYTHONIOENCODING = "utf-8"
 ```
 
 The default selects test index 0 and permits up to six searches. It prints
-the model's generated reasoning steps, search arguments, and full information
+the model's generated reasoning blocks, search arguments, and full information
 blocks. The model runs on a temporary **T4 in FP16**; its exact revision is
 recorded. Weights download on CPU into the `finance-rag-qwen-cache` Modal Volume
 before a GPU is allocated. This is inference only, not RL training.
@@ -208,6 +208,10 @@ enrichment is applied. Ambiguous names return `ambiguous_company` with a
 and `company_id`, so the caller can reformulate using a fuller name or ticker.
 Company matching searches all companies before validating the report year;
 the year does not silently select between ambiguous identities.
+When no company name matches, the error also includes up to five ranked
+"Did you mean?" candidates. Suggestions use shared name words first and
+approximate spelling when no words match; legal suffixes are ignored only for
+suggestion ranking. Suggestions do not automatically resolve the company.
 Unknown companies and unavailable report years are also explicit errors.
 Valid searches without matches return an empty result list. Elasticsearch
 failures and partial search responses return 503, rather than empty evidence.
@@ -306,7 +310,7 @@ external index. Do not deploy it when using the private default above.
   first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
   in `reports/modal-deployed.json`; no GPU was required for this connectivity
   check. Actual GPU rollout throughput remains to be measured.
-- Twenty-five component tests and lint checks pass. Startup requires
+- Twenty-six component tests and lint checks pass. Startup requires
   `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
   Elasticsearch's entitlement protections remain enabled.
 - The default hosting target is Modal CPU containers; VM provisioning is no

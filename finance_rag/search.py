@@ -1,6 +1,8 @@
 """Company resolution and exact-filter BM25 search."""
 
 import json
+import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -82,6 +84,50 @@ class Registry:
             }
             self.years.setdefault(key, set()).add(doc["report_year"])
 
+    def suggest(self, name, limit=5):
+        """Rank nearby identities for feedback only; never resolve a suggestion."""
+        legal = {
+            "inc",
+            "incorporated",
+            "corp",
+            "corporation",
+            "ltd",
+            "limited",
+            "plc",
+            "company",
+            "co",
+            "the",
+        }
+
+        def tokens(value):
+            return set(re.findall(r"[^\W_]+", value.casefold())) - legal
+
+        wanted = tokens(name)
+        if not wanted:
+            return []
+        ranked = []
+        for company in self.companies.values():
+            available = tokens(company["company_name"])
+            if not available:
+                continue
+            overlap = len(wanted & available) / min(len(wanted), len(available))
+            similarity = max(
+                SequenceMatcher(None, a, b).ratio() for a in wanted for b in available
+            )
+            if overlap or similarity >= 0.7:
+                ranked.append((overlap, similarity, company))
+        ranked.sort(
+            key=lambda x: (
+                -x[0],
+                -x[1],
+                x[2]["company_name"].casefold(),
+                x[2]["company_id"],
+            )
+        )
+        if any(x[0] for x in ranked):
+            ranked = [x for x in ranked if x[0]]
+        return [x[2] for x in ranked[:limit]]
+
     def resolve(self, request, es=None, index=None, name_candidates=None):
         matches = []
         if request.company_name:
@@ -95,10 +141,14 @@ class Registry:
                     )
                 )
             if not name_candidates:
+                suggestions = self.suggest(request.company_name)
                 raise SearchError(
                     "unknown_company",
-                    "No company name matched; try a fuller name or ticker",
+                    "Company not found. Did you mean one of these candidates? Retry with a listed company name or ticker."
+                    if suggestions
+                    else "Company not found and no similar names were found. Try a shorter company name or check its spelling.",
                     404,
+                    candidates=suggestions,
                 )
             if not name_candidates <= self.companies.keys():
                 raise RuntimeError("Company candidates do not match local registry")

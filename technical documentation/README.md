@@ -154,7 +154,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 25 test cases, including five parameterized validation
+The full suite collects 26 test cases, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -341,7 +341,7 @@ The model is the requested post-trained `Qwen/Qwen3.5-2B`.
 The model emits:
 
 ```xml
-<reasoning><step>Identify the evidence needed.</step></reasoning>
+<reasoning>Identify the evidence needed.</reasoning>
 <search><company>Company name</company><year>2015</year><query>net revenue change</query></search>
 ```
 
@@ -365,8 +365,9 @@ user messages containing the `<information>` block and a continuation request.
 This preserves the Search-R1 generation/search interaction while adapting its
 raw assistant-continuation format to the requested ordinary chat checkpoint.
 An initial test of raw continuation produced immediate EOS after evidence.
-The assistant prefix is prefilled with `<reasoning><step>` to encourage visible
-step text; the prefill is logged separately from generated tokens, and no
+The assistant prefix is prefilled with `<reasoning>` to encourage visible
+reasoning text; step tags are no longer requested. The prefill is logged
+separately from generated tokens, and no
 reasoning content is fabricated by the controller. Native thinking mode is
 not enabled. Each generation uses a fresh prompt/KV cache so removed information
 is actually absent in replace mode.
@@ -407,3 +408,22 @@ retrieved real evidence. This same question was used for iterative operational
 debugging, so the result is not an unbiased accuracy estimate. Numeric and
 strict output-format validation were not performed. See the saved summary and
 the local generated transcript for the actual interactions.
+
+### Company-not-found suggestions
+
+`Registry.suggest()` supplies at most five candidate identities when strict
+analyzed company matching returns none. It ranks shared company-name words,
+ignoring common legal suffixes for this ranking only. If shared-word matches
+exist, it excludes weaker spelling-only matches; otherwise it uses standard
+library `SequenceMatcher` token similarity with a 0.7 threshold. It deduplicates
+by company ID and uses stable name/ID tie-breaks. Thus Entergy Louisiana can
+suggest Entergy, while unrelated names can receive an empty candidate list.
+
+Both HTTP and private Modal errors remain `unknown_company` and include the
+candidate names, tickers and IDs. These are ranked suggestions, not identity
+confirmation or an alias database. The normal all-words resolver and exact
+company/year evidence filters are unchanged. The baseline prompt tells the
+model to retry with a suggested full name. This code change needs a search
+service redeployment; no new index mapping or corpus preparation is required.
+The saved baseline smoke transcript predates this change and retains its
+original formatting and retries; fewer future retries have not yet been measured.

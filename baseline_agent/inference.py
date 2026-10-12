@@ -5,7 +5,7 @@ import time
 from baseline_agent.prompt import messages
 from baseline_agent.protocol import select_history
 
-ASSISTANT_PREFILL = "<reasoning><step>"
+ASSISTANT_PREFILL = "<reasoning>"
 
 
 class QwenGenerator:

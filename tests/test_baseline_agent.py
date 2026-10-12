@@ -30,6 +30,7 @@ def test_question_whitelist_and_prompt_never_contains_gold():
     assert all(
         x not in prompt for x in ("SECRET_CONTEXT", "SECRET_ANSWER", "HIDDEN_COMPANY")
     )
+    assert "<step>" not in prompt and "</step>" not in prompt
 
 
 def test_structured_search_and_answer_parsing():

@@ -164,3 +164,25 @@ def test_both_interfaces_return_candidate_feedback(tmp_path, monkeypatch):
     result = engine.search(payload)
     assert result["code"] == "ambiguous_company"
     assert len(result["candidates"]) == 2
+
+
+def test_unknown_company_suggestions_do_not_resolve_automatically(tmp_path):
+    apple, _ = registry_docs(tmp_path)
+    entergy = apple | {
+        "company_id": "entergy",
+        "company_name": "Entergy",
+        "ticker": "ETR",
+    }
+    registry = Registry([entergy, entergy | {"context_id": "duplicate"}])
+    for name in ("Entergy Louisiana", "Entenergy Louisiana", "Entergy Corporation"):
+        with pytest.raises(SearchError) as exc:
+            registry.resolve(
+                SearchRequest(company_name=name, year=2002, query="revenue"),
+                name_candidates=set(),
+            )
+        assert exc.value.code == "unknown_company"
+        assert exc.value.as_dict()["candidates"] == [
+            {"company_id": "entergy", "company_name": "Entergy", "ticker": "ETR"}
+        ]
+    assert registry.suggest("zzzzzzzz") == []
+    assert registry.suggest("Corporation") == []
