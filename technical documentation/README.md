@@ -480,3 +480,16 @@ Qwen/Qwen3.5-4B on a T4 in FP16, with 16 GB host RAM. The current prompt,
 reasoning-aware action stopping and local per-turn retrieval diagnostics remain
 in place. Model revision is recorded for every new experiment. Cached model
 weights are separate from experiment outputs and are retained.
+
+The first 4B batch is experiment `34f5b1af334b`, model revision
+`851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. It answered all first five questions
+without invalid-protocol feedback and passed Number Match for all five, taking
+139.68 seconds of episode inference. Gold context IDs were retrieved in four of
+five cases; Entergy answered 94 using alternative evidence. Intel returned
+0.1446, Analog Devices 9.86, Metavante 2.90 and Masco 1.1197. Analog Devices and
+Metavante used percent-scale values instead of the instructed decimal fractions;
+Number Match intentionally ignores powers of ten and accepts them. This small
+debug sample also uses the revised prompt/stopping, so it is not an isolated
+model-size comparison. Current snapshots are `reports/baseline-4b-first-five.csv`,
+`reports/baseline-4b-first-five.json` and `reports/baseline-4b-turns.csv`.
+The GPU run and search service were stopped after completion; TensorBoard is local.

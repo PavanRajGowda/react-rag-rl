@@ -1,0 +1,12 @@
+﻿id,turn,gold_context_id,gold_context_in_prompt,search_performed,retrieved_context_ids,gold_context_retrieved,gold_context_active_after_turn,gold_context_retrieved_ever
+finqa_test_0,1,finqa_test_ctx_110,False,True,"[""finqa_test_ctx_111"", ""finqa_train_ctx_613""]",False,False,False
+finqa_test_0,2,finqa_test_ctx_110,False,False,[],,False,False
+finqa_test_1,1,finqa_test_ctx_159,False,True,"[""finqa_test_ctx_159"", ""finqa_train_ctx_888""]",True,True,True
+finqa_test_1,2,finqa_test_ctx_159,True,False,[],,True,True
+finqa_test_2,1,finqa_test_ctx_359,False,True,"[""finqa_test_ctx_359"", ""finqa_train_ctx_13""]",True,True,True
+finqa_test_2,2,finqa_test_ctx_359,True,False,[],,True,True
+finqa_test_3,1,finqa_test_ctx_77,False,True,"[""finqa_test_ctx_77"", ""finqa_train_ctx_1675""]",True,True,True
+finqa_test_3,2,finqa_test_ctx_77,True,False,[],,True,True
+finqa_test_4,1,finqa_test_ctx_261,False,False,[],,False,False
+finqa_test_4,2,finqa_test_ctx_261,False,True,"[""finqa_test_ctx_261"", ""finqa_train_ctx_229""]",True,True,True
+finqa_test_4,3,finqa_test_ctx_261,True,False,[],,True,True
