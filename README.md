@@ -112,7 +112,10 @@ at user request; the existing five-question 4B result is a historical T4 run.
 Use the same pinned instruction-tuned 4B model without any retriever or supplied
 documents. This is a no-retrieval evaluation setting, not a switch to base-model
 weights. It allows exactly one generation, no repair turns, and no search calls.
-Gold answers remain local; abstentions and invalid output count as incorrect.
+The model must provide its best numerical answer or Yes/No even if uncertain;
+abstention is not allowed. If it still produces unknown or nonnumeric text,
+that is recorded as a policy violation, not replaced with an invented answer.
+Gold answers remain local; invalid output counts as incorrect.
 The model may use numbers already present in the question and its prior knowledge.
 
 Start with five examples; no Elasticsearch deployment is needed:
@@ -131,12 +134,21 @@ first five against the existing 50-question RAG pilot:
 .\.tools\uv.exe run python -m baseline_agent.compare --rag data/baseline/experiments/b836aee0ff0d --pretrained data/baseline/experiments/b06a90daab88 --num-examples 5 --output reports/pretrained-only-first-five-comparison
 ```
 
-The five-question check scored 1/5 Number Match without retrieval, versus 5/5
+The earlier abstention-allowed five-question check scored 1/5 Number Match without retrieval, versus 5/5
 for RAG on those same questions. Masco was the sole question-only pass and its
 question supplies the required numbers. This does not prove memorization or
 rule out all pretraining contamination. The interrupted larger run is archived
 outside the dashboard under `data/baseline/interrupted/`; the five completed
 outputs were reused without regenerating them.
+
+The fresh forced-answer check is experiment `41b9ecf7703e`: all five generated
+numbers with zero search calls and no abstentions, but only Masco passed NM
+(1/5). Predictions were 0, 0.85, 0, 0.00 and 1.1197. Forced guessing probes
+answer production without retrieval; correct guesses do not prove memorization,
+and low accuracy does not eliminate all training-contamination concerns.
+Results are saved separately under `reports/pretrained-forced-first-five*`.
+The policy change requires a new question-only run; old control checkpoints
+cannot be resumed under the changed prompt. RAG behavior is unchanged.
 
 ## Explore with Kibana
 

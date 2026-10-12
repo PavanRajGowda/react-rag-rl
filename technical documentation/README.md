@@ -549,8 +549,8 @@ retriever argument. It uses the same model weights, FP16, H100, per-example seed
 temperature and per-generation token budget. No documents, API information,
 gold answers or diagnostic flags reach the prompt. Search attempts are rejected
 as invalid output, not executed, and there are no formatting-repair turns.
-Abstentions use `unknown` and score zero; answering from facts/numbers already
-in the question is allowed. Output uses our reasoning/answer tags rather than
+The current policy requires a best-effort number or Yes/No even when uncertain;
+answering from facts/numbers already in the question is allowed. Output uses our reasoning/answer tags rather than
 the paper's JSON representation, so this recreates the setting, not an exact
 paper-prompt replication.
 
@@ -578,3 +578,21 @@ The local pipeline/source audit of the RAG 50-question pilot is saved in
 in `reports/pretrained-only-first-five*`. Tests cover no tool calls, no corpus
 read, question-only prompts, one generation, abstention, mode isolation and
 strict paired cohort validation. There are 83 tests with observability installed.
+
+### Forced-answer question-only control
+
+The abstention-allowed prompt was replaced at user request with a requirement
+to produce a single best numerical answer or Yes/No even if uncertain. Unknown
+or nonnumeric outputs are `answer_policy_violation`; the controller never inserts
+a guessed value. The checkpoint's question-only behavior hash changes, so old
+control runs cannot silently resume under the new policy. RAG hashes are intact.
+
+Fresh experiment `41b9ecf7703e` used the same first five questions, model revision,
+H100 FP16, seeds and sampling settings. Every question produced a numerical
+answer in one generation with zero search calls: Entergy 0, Intel 0.85, Analog
+Devices 0, Metavante 0.00, Masco 1.1197. NM was 1/5 versus 5/5 for those questions
+in RAG pilot `b836aee0ff0d`; inference totaled 43.49 seconds. The Masco question
+contains the required investment values. This small forced-guess control does
+not prove either presence or absence of pretraining memorization. Reports are
+under `reports/pretrained-forced-first-five*`; earlier control outputs remain
+separate. Tests pass and all cloud apps are stopped.

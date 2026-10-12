@@ -52,13 +52,17 @@ def test_attempted_search_is_rejected_without_repair_or_tool_call():
     assert generator.calls == 1 and result["searches"] == []
 
 
-def test_unknown_is_an_abstention_not_a_numeric_guess():
+def test_unknown_violates_forced_policy_without_substituting_a_guess():
     result = run_question_only(
         {"question": "Revenue?"},
         FakeGenerator("<reasoning>Unknown.</reasoning><answer>unknown</answer>"),
         AgentConfig(),
     )
-    assert result["status"] == "abstained" and result["answer"] == "unknown"
+    assert (
+        result["status"] == "answer_policy_violation" and result["answer"] == "unknown"
+    )
+    assert result["answer_policy"] == "forced_best_effort"
+    assert "MUST provide your single best answer" in messages("Revenue?")[0]["content"]
 
 
 def test_native_template_receives_only_question_and_no_tool_instructions():
