@@ -146,7 +146,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 74 test cases with observability dependencies, including five parameterized validation
+The full suite collects 83 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -540,3 +540,41 @@ Validation: 74 local tests pass. Real CLI dry runs selected 50 nonblank pilot
 rows and 1,147 full-test rows with one blank, without search/model/GPU calls.
 No H100 inference was launched as part of this preparation. Run commands,
 resume commands and try/finally CPU-service cleanup are in the root README.
+
+### Pretrained-Only control
+
+`baseline_agent/question_only.py` defines a separate question-only system prompt,
+native chat-template adapter and one-generation controller. Its interface has no
+retriever argument. It uses the same model weights, FP16, H100, per-example seeds,
+temperature and per-generation token budget. No documents, API information,
+gold answers or diagnostic flags reach the prompt. Search attempts are rejected
+as invalid output, not executed, and there are no formatting-repair turns.
+Abstentions use `unknown` and score zero; answering from facts/numbers already
+in the question is allowed. Output uses our reasoning/answer tags rather than
+the paper's JSON representation, so this recreates the setting, not an exact
+paper-prompt replication.
+
+`--pretrained-only` bypasses both the worker's service lookup and the local
+search/corpus preflight. The run manifest pins the evaluation mode, and RAG
+resume behavior hashes remain unchanged. Question-only has its own prompt hash.
+Retrieval metrics are omitted as not applicable. `baseline_agent/compare.py`
+checks matching model/GPU/dataset/generation settings and identical questions
+and gold answers, then reports paired gains/losses. A smaller prefix comparison
+requires an explicit `--num-examples` value; it is not silently inferred.
+
+The initial larger control run was stopped when the user limited the check to
+five. Its first five genuine completed outputs were retained in experiment
+`b06a90daab88` without another GPU generation. It scored 1/5 (20%) NM versus
+5/5 for those same questions from RAG pilot `b836aee0ff0d`: three abstentions,
+Intel incorrect, and Masco correct under scale-invariant NM. There were zero
+search calls or technical failures in the five-question cohort. Masco can be
+calculated directly from the question's supplied investment values, so its
+success does not establish memorization. Five examples cannot establish absence
+of pretraining contamination. The interrupted run is archived outside active
+TensorBoard experiments; all cloud apps are stopped.
+
+The local pipeline/source audit of the RAG 50-question pilot is saved in
+`reports/h100-pilot-paper-audit.json`. Control results and paired outcomes are
+in `reports/pretrained-only-first-five*`. Tests cover no tool calls, no corpus
+read, question-only prompts, one generation, abstention, mode isolation and
+strict paired cohort validation. There are 83 tests with observability installed.

@@ -54,7 +54,9 @@ def download_model(revision):
     timeout=3600,
     max_containers=1,
 )
-def run_examples(questions, config_values, revision, verbose=False):
+def run_examples(
+    questions, config_values, revision, verbose=False, evaluation_mode="rag"
+):
     import gc
     from dataclasses import replace
 
@@ -64,11 +66,19 @@ def run_examples(questions, config_values, revision, verbose=False):
     from baseline_agent.agent import AgentConfig, run_agent
     from baseline_agent.batch import failure_result, retry_call
     from baseline_agent.inference import QwenGenerator
+    from baseline_agent.question_only import QuestionOnlyGenerator, run_question_only
 
-    service = modal.Cls.from_name("finance-rag-search", "SearchService")()
+    service = (
+        modal.Cls.from_name("finance-rag-search", "SearchService")()
+        if evaluation_mode == "rag"
+        else None
+    )
     config = AgentConfig(**config_values)
     loaded = time.perf_counter()
-    generator = QwenGenerator(f"/model-cache/{revision}", config)
+    generator_class = (
+        QwenGenerator if evaluation_mode == "rag" else QuestionOnlyGenerator
+    )
+    generator = generator_class(f"/model-cache/{revision}", config)
     generator.verbose = verbose
     model_load_seconds = time.perf_counter() - loaded
     try:
@@ -86,12 +96,18 @@ def run_examples(questions, config_values, revision, verbose=False):
                         f"\n=== {question['id']}: {question['question']} ===",
                         flush=True,
                     )
-                result = run_agent(
-                    question,
-                    generator,
-                    lambda payload: retry_call(lambda: service.search.remote(payload)),
-                    question_config,
-                    emit=print if verbose else lambda *args, **kwargs: None,
+                result = (
+                    run_question_only(question, generator, question_config)
+                    if evaluation_mode == "pretrained_only"
+                    else run_agent(
+                        question,
+                        generator,
+                        lambda payload: retry_call(
+                            lambda: service.search.remote(payload)
+                        ),
+                        question_config,
+                        emit=print if verbose else lambda *args, **kwargs: None,
+                    )
                 )
             except Exception as exc:
                 logger.exception("Baseline example %s failed", question["id"])
@@ -104,6 +120,7 @@ def run_examples(questions, config_values, revision, verbose=False):
                 "dtype": "float16",
                 "inference_seconds": time.perf_counter() - started,
                 "model_load_seconds": model_load_seconds,
+                "evaluation_mode": evaluation_mode,
             }
             if restart:
                 return  # Remaining questions are retried with a fresh model invocation.
@@ -128,13 +145,18 @@ def main(
     retry_errors: bool = False,
     verbose: bool = False,
     dry_run: bool = False,
+    pretrained_only: bool = False,
 ):
     from baseline_agent.runner import run_evaluation
 
     try:
         run_evaluation(
             lambda questions, config, revision: run_examples.remote_gen(
-                questions, config, revision, verbose
+                questions,
+                config,
+                revision,
+                verbose,
+                "pretrained_only" if pretrained_only else "rag",
             ),
             download_model.remote,
             lambda: modal.Cls.from_name(
@@ -156,6 +178,7 @@ def main(
             resume=resume,
             retry_errors=retry_errors,
             dry_run=dry_run,
+            evaluation_mode="pretrained_only" if pretrained_only else "rag",
         )
     except KeyboardInterrupt:
         print("Interrupted. Saved results are resumable.")

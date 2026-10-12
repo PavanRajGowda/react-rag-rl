@@ -38,6 +38,9 @@ def write_dashboard(rows, directory, start_step=0):
                     )
                 )
             trace = json.loads(Path(row["trace_file"]).read_text(encoding="utf-8"))
+            text += f"\n\nEvaluation mode: **{row.get('evaluation_mode', 'rag')}**"
+            if row.get("evaluation_mode") == "pretrained_only":
+                text += "  \nRetrieval: **not applicable; no retriever or context supplied**"
             for turn in trace["turns"]:
                 diagnostic = turn.get("retrieval_diagnostic")
                 text += f"\n\n#### Generation {turn.get('turn', '?')}"

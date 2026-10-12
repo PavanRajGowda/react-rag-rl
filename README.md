@@ -107,6 +107,37 @@ GPU dependencies remain separately pinned in `baseline_agent/uv.lock` and
 progress and scoring without local Torch. Old experiment snapshots were removed
 at user request; the existing five-question 4B result is a historical T4 run.
 
+## Question-only (Pretrained-Only) baseline
+
+Use the same pinned instruction-tuned 4B model without any retriever or supplied
+documents. This is a no-retrieval evaluation setting, not a switch to base-model
+weights. It allows exactly one generation, no repair turns, and no search calls.
+Gold answers remain local; abstentions and invalid output count as incorrect.
+The model may use numbers already present in the question and its prior knowledge.
+
+Start with five examples; no Elasticsearch deployment is needed:
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --pretrained-only --dashboard
+```
+
+The existing progress/checkpoint/retry controls apply. Keep `--pretrained-only`
+when resuming; RAG and question-only runs cannot share a checkpoint directory.
+Retrieval metrics are not applicable for question-only runs. To compare the same
+first five against the existing 50-question RAG pilot:
+
+```powershell
+.\.tools\uv.exe run python -m baseline_agent.compare --rag data/baseline/experiments/b836aee0ff0d --pretrained data/baseline/experiments/b06a90daab88 --num-examples 5 --output reports/pretrained-only-first-five-comparison
+```
+
+The five-question check scored 1/5 Number Match without retrieval, versus 5/5
+for RAG on those same questions. Masco was the sole question-only pass and its
+question supplies the required numbers. This does not prove memorization or
+rule out all pretraining contamination. The interrupted larger run is archived
+outside the dashboard under `data/baseline/interrupted/`; the five completed
+outputs were reused without regenerating them.
+
 ## Explore with Kibana
 
 Kibana is an optional, password-protected learning environment in the separate

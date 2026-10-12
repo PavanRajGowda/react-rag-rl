@@ -1,0 +1,20 @@
+{
+  "rag_experiment": "b836aee0ff0d",
+  "pretrained_only_experiment": "b06a90daab88",
+  "model_id": "Qwen/Qwen3.5-4B",
+  "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "paired_questions": 5,
+  "skipped_ids": [],
+  "rag_number_match": 1.0,
+  "pretrained_only_number_match": 0.2,
+  "both_correct": 1,
+  "rag_only_correct": 4,
+  "pretrained_only_correct": 0,
+  "both_incorrect": 0,
+  "technical_failure_rows": 0,
+  "limitations": [
+    "Question-only success can reflect facts/numbers present in the question, reasoning or pretraining knowledge; it does not prove memorization.",
+    "Low question-only accuracy cannot rule out all pretraining contamination.",
+    "Number Match ignores signs and powers of ten; RAG permits multiple generations while question-only uses one."
+  ]
+}

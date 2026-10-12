@@ -25,12 +25,16 @@ from finance_rag.search import SEARCH_SCHEMA_VERSION
 logger = logging.getLogger(__name__)
 
 
-def behavior_hash():
+def behavior_hash(evaluation_mode="rag"):
     package = Path(__file__).parent
     return hashlib.sha256(
         b"".join(
             (package / name).read_bytes()
-            for name in ("prompt.py", "protocol.py", "agent.py", "inference.py")
+            for name in (
+                ("prompt.py", "protocol.py", "agent.py", "inference.py")
+                if evaluation_mode == "rag"
+                else ("question_only.py", "protocol.py", "inference.py")
+            )
         )
     ).hexdigest()
 
@@ -62,8 +66,11 @@ def run_evaluation(
     resume="",
     retry_errors=False,
     dry_run=False,
+    evaluation_mode="rag",
 ):
     started = time.perf_counter()
+    if evaluation_mode not in ("rag", "pretrained_only"):
+        raise ValueError("Unknown evaluation mode")
     if not 1 <= batch_size <= 50 or not 1 <= attempts <= 5:
         raise ValueError("batch_size must be 1–50; attempts must be 1–5")
     config = AgentConfig(
@@ -82,13 +89,17 @@ def run_evaluation(
         "dtype": "float16",
         "dataset_revision": DATASET_REVISION,
         "base_config": asdict(config),
-        "behavior_sha256": behavior_hash(),
-        "search_schema_version": SEARCH_SCHEMA_VERSION,
+        "behavior_sha256": behavior_hash(evaluation_mode),
+        "search_schema_version": SEARCH_SCHEMA_VERSION
+        if evaluation_mode == "rag"
+        else None,
+        "evaluation_mode": evaluation_mode,
         "start": start,
     }
     manifest_path = directory / "run.json"
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if resume else {}
     if resume:
+        previous.setdefault("evaluation_mode", "rag")
         validate_resume(previous, expected)
     manifest = (
         previous
@@ -116,6 +127,7 @@ def run_evaluation(
             "inference_seconds": result.get("inference_seconds", 0),
             "model_load_seconds": result.get("model_load_seconds", 0),
             "run_id": directory.name,
+            "evaluation_mode": evaluation_mode,
         }
 
     try:
@@ -163,6 +175,7 @@ def run_evaluation(
             wanted_config = asdict(config) | {
                 "seed": config.seed + question["example_index"]
             }
+            saved.setdefault("evaluation_mode", "rag")
             validate_resume(
                 saved,
                 {
@@ -171,6 +184,7 @@ def run_evaluation(
                     "model_revision": revision,
                     "model_id": model_id,
                     "gpu": gpu,
+                    "evaluation_mode": evaluation_mode,
                 },
             )
             rows[question["id"]] = record_result(
@@ -268,18 +282,27 @@ def run_evaluation(
                 x["question"] for x in examples if x["question"]["id"] not in completed
             ]
             if pending:
-                response = retry_call(probe, attempts)
-                if (
+                response = (
+                    retry_call(probe, attempts) if evaluation_mode == "rag" else None
+                )
+                if evaluation_mode == "rag" and (
                     response.get("status") != "ok"
                     or response.get("search_schema_version") != SEARCH_SCHEMA_VERSION
                 ):
                     raise RuntimeError(
                         "Search preflight failed or deployed schema is stale. Redeploy modal_app.py before allocating the GPU"
                     )
-                expected_corpus = json.loads(
-                    Path("data/finqa/manifest.json").read_text(encoding="utf-8")
-                )["corpus_version"]
-                if response.get("corpus_version") != expected_corpus:
+                expected_corpus = (
+                    json.loads(
+                        Path("data/finqa/manifest.json").read_text(encoding="utf-8")
+                    )["corpus_version"]
+                    if evaluation_mode == "rag"
+                    else None
+                )
+                if (
+                    evaluation_mode == "rag"
+                    and response.get("corpus_version") != expected_corpus
+                ):
                     raise RuntimeError(
                         "Deployed corpus version differs from local corpus"
                     )

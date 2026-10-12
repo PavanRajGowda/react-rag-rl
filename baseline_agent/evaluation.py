@@ -10,6 +10,7 @@ from baseline_agent.retrieval_diagnostics import annotate_retrieval
 from baseline_agent.scoring import score_answer
 
 CSV_FIELDS = [
+    "evaluation_mode",
     "example_index",
     "id",
     "question",
@@ -42,7 +43,11 @@ def record_result(result, gold, directory, gold_context_id=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     skipped = result["status"].startswith("skipped_")
-    if gold_context_id is not None and not skipped:
+    if (
+        gold_context_id is not None
+        and not skipped
+        and result.get("evaluation_mode", "rag") == "rag"
+    ):
         result = annotate_retrieval(result, gold_context_id)
     scoring = score_answer(result["answer"], gold)
     if skipped:
@@ -76,6 +81,7 @@ def record_result(result, gold, directory, gold_context_id=None):
         encoding="utf-8",
     )
     row = {
+        "evaluation_mode": result.get("evaluation_mode", "rag"),
         "example_index": result["question"]["example_index"],
         "id": result["question"]["id"],
         "question": result["question"]["question"],
