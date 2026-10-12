@@ -20,6 +20,7 @@ def test_question_whitelist_and_prompt_never_contains_gold():
         "program_answer": "SECRET_ANSWER",
         "company_name": "HIDDEN_COMPANY",
         "report_year": 2010,
+        "context_id": "SECRET_CONTEXT_ID",
     }
     selected = question_only(row, 0)
     assert (
@@ -225,7 +226,7 @@ def test_search_feedback_identifies_missing_fields(action, missing):
     with pytest.raises(ProtocolError) as exc:
         parse_action(action)
     assert missing in str(exc.value)
-    assert "Use <search><company>" in str(exc.value)
+    assert "Required child tags" in str(exc.value)
 
 
 def test_information_tag_mention_in_reasoning_is_not_fabricated_evidence():

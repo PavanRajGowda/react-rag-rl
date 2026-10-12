@@ -30,9 +30,21 @@ def write_dashboard(rows, directory, start_step=0):
                     )
                 )
             text = f"### {row['id']}\n\n{row['question']}\n\nGold: {row['correct_answer']}  \nPrediction: {row['our_answer']}  \nStatus: {row['status']}  \nScore: {row['score']}  \nInference: {row['inference_seconds']:.2f}s\n\nTrace: {row['trace_file']}"
+            if row.get("gold_context_retrieved_ever") is not None:
+                values.append(
+                    summary_pb2.Summary.Value(
+                        tag="retrieval/gold_context_hit",
+                        simple_value=float(row["gold_context_retrieved_ever"]),
+                    )
+                )
             trace = json.loads(Path(row["trace_file"]).read_text(encoding="utf-8"))
             for turn in trace["turns"]:
-                text += f"\n\n#### Generation {turn.get('turn', '?')}\n\n```text\n{turn.get('model_output', turn.get('error', ''))}\n```"
+                diagnostic = turn.get("retrieval_diagnostic")
+                text += f"\n\n#### Generation {turn.get('turn', '?')}"
+                if diagnostic:
+                    hit = diagnostic["gold_context_retrieved"]
+                    text += f"\n\nGold context in prompt: **{diagnostic['gold_context_in_prompt']}**  \nGold context retrieved this turn: **{hit if hit is not None else 'No search'}**  \nGold context active after turn: **{diagnostic['gold_context_active_after_turn']}**  \nGold context retrieved ever: **{diagnostic['gold_context_retrieved_ever']}**  \nGold context ID: `{diagnostic['gold_context_id']}`  \nRetrieved IDs: {diagnostic['retrieved_context_ids']}"
+                text += f"\n\n```text\n{turn.get('model_output', turn.get('error', ''))}\n```"
             for search in trace["searches"]:
                 text += (
                     "\n\n#### Search\n\n```json\n"

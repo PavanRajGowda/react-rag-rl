@@ -9,7 +9,19 @@ class ProtocolError(ValueError):
     pass
 
 
+def action_complete(segment):
+    """A quoted closing action tag inside reasoning cannot stop generation."""
+    if "</reasoning>" not in segment:
+        return False
+    action = segment.rsplit("</reasoning>", 1)[-1].strip()
+    return bool(re.fullmatch(r"<(search|answer)>.*?</\1>", action, re.DOTALL))
+
+
 def parse_action(segment):
+    if "<reasoning>" in segment and "</reasoning>" not in segment:
+        raise ProtocolError(
+            "Close the reasoning block before emitting an action. Do not quote action examples inside reasoning; then emit one search with company/year/query child tags, or a final answer if evidence is sufficient."
+        )
     # Tag mentions in reasoning are not actions.
     actions = segment.rsplit("</reasoning>", 1)[-1]
     if "<information>" in actions:
@@ -23,7 +35,7 @@ def parse_action(segment):
     )
     answers = list(re.finditer(r"<answer>([^<>]*)</answer>", actions, re.DOTALL))
     if len(searches) + len(answers) != 1:
-        example = "Use <search><company>Company name</company><year>2010</year><query>Financial evidence needed</query></search>."
+        example = "Required child tags inside search, in order: company (actual company from the question), year (one four-digit report year), query (specific evidence needed). Put each value between its opening and closing child tags. Do not copy documentation placeholders. If evidence is already sufficient, emit a numerical answer in answer tags instead of a search."
         if "<search>" in actions:
             # Last opening tag avoids swallowing an incidental earlier tag mention.
             body = actions.rsplit("<search>", 1)[-1]
@@ -31,6 +43,14 @@ def parse_action(segment):
             if "</search>" not in body:
                 issues.append("missing </search> closing tag")
             body = body.split("</search>", 1)[0]
+            if re.search(
+                r"\b(none needed|no search|calculation can be performed|no further search)\b",
+                body,
+                re.IGNORECASE,
+            ):
+                raise ProtocolError(
+                    "A search action requests evidence; it cannot mean 'no search needed'. Calculate from the available evidence and put the final value in answer tags, after closing reasoning."
+                )
             for field in ("company", "year", "query"):
                 opening, closing = f"<{field}>", f"</{field}>"
                 if opening not in body:
@@ -58,6 +78,13 @@ def parse_action(segment):
             raise ProtocolError("The <answer> is empty.")
         return "answer", value
     company, year, query = (unescape(x).strip() for x in searches[0].groups())
+    if company.casefold() in {"company name", "actual_company"} or query.casefold() in {
+        "financial evidence needed",
+        "specific_query",
+    }:
+        raise ProtocolError(
+            "Search fields contain documentation placeholders. Use the actual company from the original question and a specific financial query; do not copy example field values."
+        )
     if not re.fullmatch(r"\d{4}", year):
         raise ProtocolError(
             f"The year field must contain exactly ONE four-digit report year; received {year!r}. Select one report year and put the financial periods being compared in the query."

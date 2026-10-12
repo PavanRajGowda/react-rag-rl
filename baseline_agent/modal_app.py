@@ -148,6 +148,7 @@ def main(
     ):
         raise ValueError("Resume directory must be an existing baseline experiment")
     labels = {x["question"]["id"]: x["gold_answer"] for x in examples}
+    contexts = {x["question"]["id"]: x["gold_context_id"] for x in examples}
     rows = []
     completed = set()
     for example in examples:
@@ -164,7 +165,14 @@ def main(
                 raise ValueError(
                     "Saved example has incompatible model, dataset or configuration"
                 )
-            rows.append(record_result(previous, example["gold_answer"], directory))
+            rows.append(
+                record_result(
+                    previous,
+                    example["gold_answer"],
+                    directory,
+                    example["gold_context_id"],
+                )
+            )
             completed.add(example["question"]["id"])
     if dashboard and rows:
         from baseline_agent.observability import write_dashboard
@@ -183,7 +191,14 @@ def main(
     )
     for result in generated_results:
         result["run_id"] = experiment_id
-        rows.append(record_result(result, labels[result["question"]["id"]], directory))
+        rows.append(
+            record_result(
+                result,
+                labels[result["question"]["id"]],
+                directory,
+                contexts[result["question"]["id"]],
+            )
+        )
         summary = export_rows(rows, directory)
         if dashboard:
             from baseline_agent.observability import write_dashboard

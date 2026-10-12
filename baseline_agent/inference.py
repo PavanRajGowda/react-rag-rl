@@ -3,7 +3,7 @@
 import time
 
 from baseline_agent.prompt import messages
-from baseline_agent.protocol import select_history
+from baseline_agent.protocol import action_complete, select_history
 
 ASSISTANT_PREFILL = "<reasoning>"
 
@@ -47,7 +47,7 @@ class QwenGenerator:
                     {
                         "role": "user",
                         "content": event["text"]
-                        + "\nContinue the original financial question. Reason from this result, then produce one search or final answer.",
+                        + "\nContinue the original question. If the evidence is sufficient, calculate and emit the final numerical answer in answer tags. Otherwise request evidence using search with company, year and query child tags. Never use search to say that no search is needed. Replace all example placeholders with actual values.",
                     }
                 )
         # The requested checkpoint is an ordinary chat model, not a
@@ -78,10 +78,10 @@ class QwenGenerator:
         class StopAtAction(StoppingCriteria):
             def __call__(self, input_ids, scores, **kwargs):
                 text = tokenizer.decode(
-                    input_ids[0, max(length, input_ids.shape[1] - 64) :],
+                    input_ids[0, length:],
                     skip_special_tokens=False,
                 )
-                return text.rstrip().endswith(("</search>", "</answer>"))
+                return action_complete(ASSISTANT_PREFILL + text)
 
         started = time.perf_counter()
         print(ASSISTANT_PREFILL, end="", flush=True)

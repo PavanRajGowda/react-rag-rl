@@ -146,7 +146,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 57 test cases with observability dependencies, including five parameterized validation
+The full suite collects 63 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -512,3 +512,32 @@ context limit in this run. Raw results are in `reports/baseline-first-five-v4.cs
 and provenance/comparison notes in `reports/baseline-first-five-v4.json`.
 Search and Kibana were deployed successfully, then stopped after the T4 run;
 all cloud apps reported zero active containers.
+
+### Action recovery and per-turn retrieval diagnostics
+
+`baseline_agent/retrieval_diagnostics.py` annotates completed episodes locally
+using the dataset's reference context ID. Gold IDs are returned alongside gold
+answers by the local loader, but GPU requests contain only whitelisted questions.
+For each generation the annotations distinguish gold evidence in its prompt,
+a hit in the search issued that turn (null if no search), active evidence after
+the turn and an ever-hit flag. Replace mode removes earlier API information,
+including when a new API error replaces it; formatting feedback alone retains
+evidence. Append mode retains all retrieved blocks. Model outputs and formatting
+feedback persist in both modes. These checks do not judge alternative evidence.
+
+`evaluation.py` exports `turns.csv` and per-example diagnostics;
+`observability.py` puts the indicators beside each generation in TensorBoard
+Text and adds a per-example retrieval-hit Scalar. The saved v4 run was annotated
+under `retrieval-review` without changing original prompts or answers, and
+`reports/baseline-v4-turn-retrieval.csv` contains the per-turn review table.
+Gold context was retrieved for Intel, Metavante and Masco, but not Entergy or
+Analog Devices. Intel still answered incorrectly; Metavante still exhausted turns.
+
+The prompt now explicitly separates requests for evidence from final answers,
+explains the company child tag and placeholders, and reflects the broad-query
+fallback. Error feedback no longer supplies a complete copyable search example;
+known placeholder values are rejected. A search saying no search is needed gets
+answer-specific feedback. The stop check waits for a completed action after
+closed reasoning, so quoted closing tags inside reasoning cannot stop generation.
+Unclosed reasoning cannot execute a quoted search. These instruction/generation
+changes have local tests but have not been evaluated in another GPU run.

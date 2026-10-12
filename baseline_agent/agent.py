@@ -105,7 +105,9 @@ def run_agent(question, generator, search, config, emit=print):
         # evidence, model mistakes, or fabricated empty retrieval results.
         result = search(request)
         elapsed = time.perf_counter() - started
-        searches.append({"request": request, "response": result, "seconds": elapsed})
+        searches.append(
+            {"turn": number, "request": request, "response": result, "seconds": elapsed}
+        )
         successful_evidence |= result.get("status") == "ok" and bool(
             result.get("results")
         )

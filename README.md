@@ -67,6 +67,17 @@ and tool waits, but excludes download, model loading and readiness warmup.
 Number Match intentionally ignores sign and power-of-ten differences; inspect
 raw answers and `sign_agrees` as well. Unsupported gold is explicitly unscored.
 
+Retrieval diagnostics are calculated locally after inference using the test
+example's gold `context_id`; this identifier and the hit indicators never enter
+the model prompt or GPU payload. `turns.csv`, per-example JSON/text, and
+TensorBoard Text show whether each turn retrieved the gold context, whether it
+was present in that generation's evidence, and whether it was ever retrieved.
+Turns without a search have a blank hit field and `search_performed=False`.
+These are exact context-ID checks; other contexts may contain valid evidence.
+The completed v4 run has an annotated review copy under
+`data/baseline/experiments/81c16ea03897/retrieval-review/`; its original predictions
+and prompts were preserved. Select its `tensorboard` run to inspect the indicators.
+
 To resume without rerunning saved questions:
 
 ```powershell

@@ -34,6 +34,7 @@ def load_evaluation_examples(start=0, count=5):
         {
             "question": question_only(dataset[i], i),
             "gold_answer": dataset[i]["program_answer"],
+            "gold_context_id": dataset[i]["context_id"],
         }
         for i in range(start, start + count)
     ]

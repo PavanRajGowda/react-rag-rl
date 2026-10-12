@@ -4,6 +4,7 @@ import csv
 import json
 from pathlib import Path
 
+from baseline_agent.retrieval_diagnostics import annotate_retrieval
 from baseline_agent.scoring import score_answer
 
 CSV_FIELDS = [
@@ -30,12 +31,16 @@ CSV_FIELDS = [
     "trace_file",
     "model_revision",
     "context_mode",
+    "gold_context_id",
+    "gold_context_retrieved_ever",
 ]
 
 
-def record_result(result, gold, directory):
+def record_result(result, gold, directory, gold_context_id=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
+    if gold_context_id is not None:
+        result = annotate_retrieval(result, gold_context_id)
     scoring = score_answer(result["answer"], gold)
     result = result | {
         "gold_answer": gold,
@@ -51,6 +56,12 @@ def record_result(result, gold, directory):
         + str(gold)
         + "\nOur answer: "
         + str(result["answer"])
+        + "\n\nRetrieval diagnostics (local only):\n"
+        + "\n".join(
+            f"Turn {turn.get('turn', '?')}: "
+            + json.dumps(turn.get("retrieval_diagnostic", {}))
+            for turn in result["turns"]
+        )
         + "\n\n"
         + "\n\n".join(x["text"] for x in result["events"]),
         encoding="utf-8",
@@ -75,6 +86,10 @@ def record_result(result, gold, directory):
         "trace_file": str(path.resolve()),
         "model_revision": result["model_revision"],
         "context_mode": result["config"]["context_mode"],
+        "gold_context_id": gold_context_id,
+        "gold_context_retrieved_ever": result.get("retrieval_validation", {}).get(
+            "gold_context_retrieved_ever"
+        ),
     }
     return row
 
@@ -86,6 +101,27 @@ def export_rows(rows, directory):
         writer.writeheader()
         writer.writerows(rows)
     scored = [x["score"] for x in rows if x["score"] is not None]
+    turn_rows = []
+    for row in rows:
+        trace = json.loads(Path(row["trace_file"]).read_text(encoding="utf-8"))
+        for turn in trace["turns"]:
+            if "retrieval_diagnostic" in turn:
+                turn_rows.append(
+                    {
+                        "id": row["id"],
+                        "turn": turn["turn"],
+                        **turn["retrieval_diagnostic"],
+                    }
+                )
+    if turn_rows:
+        for row in turn_rows:
+            row["retrieved_context_ids"] = json.dumps(row["retrieved_context_ids"])
+        with (Path(directory) / "turns.csv").open(
+            "w", encoding="utf-8-sig", newline=""
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(turn_rows[0]))
+            writer.writeheader()
+            writer.writerows(turn_rows)
     summary = {
         "metric": "T2-RAGBench Number Match",
         "epsilon": 0.01,
@@ -97,6 +133,13 @@ def export_rows(rows, directory):
         "timing_definition": "Per-question agent loop on GPU, including generation and tool waits; excludes image build, model download/load and readiness warmup",
         "number_match_ignores_sign_and_power_of_ten": True,
     }
+    assessed = [
+        row["gold_context_retrieved_ever"]
+        for row in rows
+        if row.get("gold_context_retrieved_ever") is not None
+    ]
+    if assessed:
+        summary["gold_context_retrieval_rate"] = sum(assessed) / len(assessed)
     (Path(directory) / "summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
