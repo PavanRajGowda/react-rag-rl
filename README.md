@@ -205,7 +205,7 @@ For a VM, use authenticated TLS Elasticsearch; do not expose the development
 Compose configuration publicly. A single-node VM needs `ES_REPLICAS=0`.
 
 The corpus version remains `finqa-301676584646`; the current index name is
-`finqa-301676584646-search-v3`, including the company-resolution schema version.
+`finqa-301676584646-search-v4`, including the company-resolution schema version.
 Existing indexes with keyword-only company names must be reindexed into the new
 name. Modal containers build it automatically after a fresh deployment.
 The indexer verifies the document count and blocks future writes. It refuses
@@ -231,49 +231,36 @@ uv run uvicorn finance_rag.api:app --host 127.0.0.1 --port 8000
 company_name, ticker, or both. Both must identify the same company. Names use
 Elasticsearch's standard analyzed text matching: `apple` can match `Apple Inc.`.
 For multiple words, every analyzed word must match the issuer name. Tickers
-remain case-insensitive exact matches. Resolution and retrieval are entirely
-Elasticsearch based: issuer name first, then `company_synonyms`, then a broad
-text search with company name plus query only if neither field matches.
-spaCy `en_core_web_sm` 3.8.0 extracts ORG entities during indexing and unions
-them by issuer into the new indexed field. These are organization mentions,
-not verified corporate aliases. Names can be missed or misclassified,
-especially in the lowercased source corpus.
+remain case-insensitive exact matches. All resolution and retrieval use
+Elasticsearch. If no issuer name matches, search document text using company
+name plus query across all issuers and report years. The response explicitly
+explains that both filters were relaxed and includes each result's actual issuer
+and report year. No synonym extraction, synonym matching, or local text scan is
+performed.
 
-Primary-name ambiguity returns candidates and available report years. Synonym
-ambiguity returns up to two full contexts across candidate issuers at the
-requested year, explicitly marked ambiguous. Known issuers or synonym matches
-with unavailable years return `report_year_unavailable`; they never silently
-relax the year. The broad fallback alone drops both issuer and year filters and
-explains that relaxation. Results include `match_method`, `message`, requested
-identifiers, applied filters, candidates, actual issuer/year metadata, and full
+Ambiguous issuer names return candidate names, tickers and available years.
+Known issuers lacking the requested year return `report_year_unavailable`;
+they never silently switch to unrestricted retrieval. Responses include
+`match_method`, `message`, requested identifiers, applied filters and full
 contexts. Empty searches use `code: no_results`; backend failures remain errors.
+`top_k` defaults to two (allowed range 1–10). Financial formatting is preserved.
 
-`top_k` now defaults to two in both API and agent (allowed range 1–10).
-The baseline forwards resolution explanations alongside full evidence inside
-`<information>`. Financial tables, row labels, signs, units and footnotes remain
-unchanged. No document text is scanned in Python during a search request.
-
-Reindexing is required for schema v3. Existing v2 indices remain untouched:
+Schema v4 removes the derived organization field. Existing indices remain
+untouched; reindex external Elasticsearch or redeploy Modal to build v4:
 
 ```powershell
 .\.tools\uv.exe sync --frozen
-# Generate reusable index input once (also required before Modal deployment):
-.\.tools\uv.exe run python -m finance_rag.organizations
 .\.tools\uv.exe run python -m finance_rag.index
-# Temporary CPU-only integration check; exits after verification:
+# Temporary CPU-only integration check:
 .\.tools\uv.exe run modal run modal_app.py --verify-resolution
-# To make the updated service available to the baseline:
+# Deploy the search service and optional Kibana copy:
 .\.tools\uv.exe run modal deploy modal_app.py
-# Update the optional Kibana copy as well:
 .\.tools\uv.exe run modal deploy modal_kibana.py
 ```
 
-The index command requires a running Elasticsearch endpoint. Modal containers
-build their own v3 index at startup from the prepared organization lists.
-`organizations.json` is an index-input artifact verified against the corpus
-hash and pinned extraction model. It is never consulted during search requests.
-Regenerate it after changing the corpus. Stop deployments
-when finished to avoid further container usage.
+The index command requires a running Elasticsearch endpoint. Modal indexes the
+original prepared contexts at startup. No organization-preparation command or
+artifact is required. Stop deployments when finished to avoid further usage.
 
 The API verifies local corpus integrity and remote index metadata at startup.
 Protected `/health` checks backend connectivity; `/docs` exposes the schema.

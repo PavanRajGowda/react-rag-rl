@@ -18,9 +18,6 @@ image = (
     .add_local_python_source("finance_rag")
     .add_local_file(root / "data/finqa/contexts.jsonl", "/corpus/contexts.jsonl")
     .add_local_file(root / "data/finqa/manifest.json", "/corpus/manifest.json")
-    .add_local_file(
-        root / "data/finqa/organizations.json", "/corpus/organizations.json"
-    )
 )
 app = modal.App("finance-rag-search")
 
@@ -129,7 +126,6 @@ def main(
             checks.append({"request": request, "response": result})
         if (
             checks[0]["response"].get("match_method") != "company_name"
-            or checks[1]["response"].get("match_method") != "company_synonyms"
             or checks[-1]["response"].get("match_method") != "broad_query"
         ):
             raise RuntimeError("Resolution precedence or broad fallback failed")
@@ -236,9 +232,9 @@ def main(
 
     original = {x["context_id"]: x for x in load_docs(root / "data/finqa")}
     for hit in result["results"]:
-        if {
-            k: v for k, v in hit.items() if k not in ("score", "company_synonyms")
-        } != original[hit["context_id"]]:
+        if {k: v for k, v in hit.items() if k != "score"} != original[
+            hit["context_id"]
+        ]:
             raise RuntimeError("Retrieved context changed from source corpus")
         if hit["ticker"] != "AAPL" or hit["report_year"] != 2002:
             raise RuntimeError("Metadata filter failed")

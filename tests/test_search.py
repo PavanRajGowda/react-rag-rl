@@ -75,7 +75,7 @@ def test_api_auth_preservation_empty_and_failure(tmp_path, monkeypatch):
             get_mapping=AsyncMock(
                 return_value={
                     index_name(manifest): {
-                        "mappings": {"_meta": manifest | {"search_schema_version": 3}}
+                        "mappings": {"_meta": manifest | {"search_schema_version": 4}}
                     }
                 }
             )

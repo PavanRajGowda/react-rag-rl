@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-SEARCH_SCHEMA_VERSION = 3
+SEARCH_SCHEMA_VERSION = 4
 
 
 def index_name(manifest):

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from elasticsearch import Elasticsearch, helpers
 
-from finance_rag.organizations import MODEL, MODEL_VERSION, indexed_documents
 from finance_rag.search import SEARCH_SCHEMA_VERSION, index_name, load_docs
 
 
@@ -26,7 +25,7 @@ def main():
     print(json.dumps(index_corpus(args.data)))
 
 
-def index_corpus(directory, es=None, nlp=None):
+def index_corpus(directory, es=None):
     directory = Path(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
     docs = load_docs(directory)
@@ -38,14 +37,8 @@ def index_corpus(directory, es=None, nlp=None):
             raise RuntimeError(
                 f"Index {index} already exists; use it or create a new version"
             )
-        docs = indexed_documents(directory, docs, nlp=nlp)
         properties = {k: {"type": "keyword"} for k in docs[0]}
         properties["company_name"] = {
-            "type": "text",
-            "analyzer": "standard",
-            "fields": {"keyword": {"type": "keyword"}},
-        }
-        properties["company_synonyms"] = {
             "type": "text",
             "analyzer": "standard",
             "fields": {"keyword": {"type": "keyword"}},
@@ -65,12 +58,7 @@ def index_corpus(directory, es=None, nlp=None):
             },
             mappings={
                 "dynamic": "strict",
-                "_meta": manifest
-                | {
-                    "search_schema_version": SEARCH_SCHEMA_VERSION,
-                    "organization_model": MODEL,
-                    "organization_model_version": MODEL_VERSION,
-                },
+                "_meta": manifest | {"search_schema_version": SEARCH_SCHEMA_VERSION},
                 "properties": properties,
             },
         )

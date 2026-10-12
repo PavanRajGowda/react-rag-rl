@@ -64,12 +64,6 @@ async def retrieve(request, search, corpus_version):
                 }
             },
         )
-        if not companies:
-            method = "company_synonyms"
-            # Phrase matching prevents tokens from different array entries matching.
-            companies = await identities(
-                search, {"match_phrase": {"company_synonyms": request.company_name}}
-            )
     else:
         companies = await identities(
             search,
@@ -105,10 +99,6 @@ async def retrieve(request, search, corpus_version):
             candidates=companies,
         )
     candidates = companies
-    if method == "company_synonyms":
-        candidates = companies = [
-            company | {"matched_synonym": request.company_name} for company in companies
-        ]
     if companies:
         companies = [x for x in companies if request.year in x["report_years"]]
         if not companies:
@@ -124,14 +114,10 @@ async def retrieve(request, search, corpus_version):
         ]
         query = request.query
         message = "Matched report issuer and applied the requested report year."
-        if method == "company_synonyms":
-            message = "No issuer name matched. Matched organization names extracted into company_synonyms; these may be aliases, acquisitions, subsidiaries, partners, or other mentioned organizations. Applied the requested report year."
-            if len(candidates) > 1:
-                message += " Multiple issuers matched; inspect the returned contexts and refine the issuer if necessary."
     else:
         method, filters = "broad_query", []
         query = f"{request.company_name} {request.query}"
-        message = "Neither issuer name nor company_synonyms matched. Searched company name plus query across all issuers and report years; the supplied company and year filters were relaxed. Check each result's actual issuer and year."
+        message = "No report issuer matched the company name. Searched company name plus query across all issuers and report years; the supplied company and year filters were relaxed. Check each result's actual issuer and year."
     response = checked(
         await search(
             size=request.top_k,

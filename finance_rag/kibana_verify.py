@@ -17,9 +17,6 @@ def main():
     base = args.url.rstrip("/")
     credentials = json.loads(Path("data/kibana-credentials.json").read_text())
     manifest = json.loads(Path("data/finqa/manifest.json").read_text())
-    organizations = json.loads(Path("data/finqa/organizations.json").read_text())
-    if organizations["corpus_sha256"] != manifest["sha256"]:
-        raise RuntimeError("Organization artifact does not match prepared corpus")
     response = requests.get(base + "/api/data_views", timeout=600)
     if response.status_code != 401:
         raise RuntimeError(
@@ -67,24 +64,8 @@ def main():
         response = search.json()
         if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
             raise RuntimeError("Partial search results")
-        for hit in response["hits"]["hits"]:
-            doc = hit["_source"]
-            if (
-                doc.get("company_synonyms")
-                != organizations["companies"][doc["company_id"]]
-            ):
-                raise RuntimeError(
-                    "Indexed organization lists do not match prepared artifact"
-                )
         docs = sorted(
-            (
-                {
-                    key: value
-                    for key, value in x["_source"].items()
-                    if key != "company_synonyms"
-                }
-                for x in response["hits"]["hits"]
-            ),
+            (x["_source"] for x in response["hits"]["hits"]),
             key=lambda x: x["context_id"],
         )
         corpus = "".join(
@@ -106,7 +87,6 @@ def main():
         "unauthenticated_api_status": 401,
         "data_view": "FinQA contexts",
         "exact_corpus_integrity": True,
-        "organization_integrity": True,
     }
     Path("reports/kibana-verification.json").write_text(
         json.dumps(result, indent=2), encoding="utf-8"
