@@ -1,4 +1,4 @@
-"""Download on CPU, then run exactly one test question on a temporary T4."""
+"""Download on CPU, then run a bounded test batch on a temporary T4."""
 
 import json
 import logging
@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import modal
 
-MODEL_ID = "Qwen/Qwen3.5-2B"
+MODEL_ID = "Qwen/Qwen3.5-4B"
 logger = logging.getLogger(__name__)
 app = modal.App("finance-rag-baseline")
 cache = modal.Volume.from_name("finance-rag-qwen-cache", create_if_missing=True)
@@ -49,7 +49,7 @@ def download_model(revision):
     image=image,
     gpu="T4",
     cpu=2,
-    memory=8192,
+    memory=16384,
     volumes={"/model-cache": cache},
     timeout=1800,
     max_containers=1,

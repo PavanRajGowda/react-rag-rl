@@ -161,9 +161,6 @@ Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 | `reports/modal-deployed.json` | A second Modal container successfully calls the deployed search class | Confirms the same connection pattern intended for a future GPU caller; no GPU was used |
 | `reports/kibana-verification.json` | Count, cookie login, unauthenticated 401, data view, and exact corpus-hash match | Confirms every indexed context matched the prepared corpus in the verified dashboard instance |
 | `reports/company-resolution-smoke.json` | Real Elasticsearch resolves `apple`, reports all matching American companies, and accepts a refined name/ticker | Verifies the analyzed company mapping and ambiguity feedback under search schema v2 |
-| `reports/baseline-smoke.json` | First test question, pinned model/config, five tool attempts, six generations, and ungraded answer | Operational T4 test after debugging this same example; does not measure accuracy or evaluate the test split |
-| `reports/baseline-first-five.csv` | First five test gold/predicted answers, scores, statuses and inference timings | Actual small evaluated batch, with failures preserved |
-| `reports/baseline-first-five.json` | Batch score, aggregate inference time, model/dataset provenance and telemetry-resume note | 1/5 Number Match; not full-test accuracy |
 
 Reports are historical artifacts. Starting a new deployment or changing
 configuration requires fresh verification; an old report does not check a
@@ -316,7 +313,7 @@ the generation → search → information → generation interaction in
 [Search-R1's inference example](https://github.com/PeterGriffinJin/Search-R1/blob/main/infer.py)
 to the financial search API's company/year/query contract. This is not a port
 of the Search-R1 RL trainer and does not load a Search-R1-trained checkpoint.
-The model is the requested post-trained `Qwen/Qwen3.5-2B`.
+The model is the requested post-trained `Qwen/Qwen3.5-4B`.
 
 | File | Responsibility and relationships |
 |---|---|
@@ -405,14 +402,6 @@ deployed CPU search service should be stopped explicitly after experimentation
 if it should not be callable. This implementation is a debugging baseline,
 not a multi-hour training infrastructure or throughput benchmark.
 
-Live smoke test: `finqa_test_0` completed on a Tesla T4 with five search attempts
-and six generations, returning `<answer>94</answer>`. The first four requests
-encountered unknown-company or unavailable-report-year errors; the fifth
-retrieved real evidence. This same question was used for iterative operational
-debugging, so the result is not an unbiased accuracy estimate. Numeric and
-strict output-format validation were not performed. See the saved summary and
-the local generated transcript for the actual interactions.
-
 ### Direct fallback and schema v4
 
 `finance_rag/retrieval.py` is the shared Elasticsearch-only engine. The HTTP
@@ -485,59 +474,9 @@ The dashboard is a local process; cloud CPU/GPU apps can be stopped while its
 saved results remain viewable. LangSmith, Langfuse and Phoenix are alternatives
 for richer hosted/self-hosted agent trace trees, requiring additional setup.
 
-The first-five evaluated batch completed with one Number Match success out of
-five. Case 0 hit the context budget; case 1 returned an incorrect table-derived
-value; case 2 exhausted turns on malformed search actions; case 3 exhausted
-searches on an unknown company; case 4 matched. Summed per-question inference
-time was 326.02 seconds. The initial telemetry import failure interrupted the
-batch after case 0; that result was preserved and cases 1–4 were resumed on
-one loaded T4 model. No predictions were changed or rerun to improve scores.
-
-### Fresh run after schema v4 deployment
-
-Experiment `81c16ea03897` reran indices 0–4 on the same pinned model revision,
-with K=2, updated parser feedback and direct broad-query fallback. All five
-completed locally with saved traces and dashboard events. Number Match remained
-1/5 (20%), and summed episode inference time was 196.77 seconds versus 326.02
-seconds previously. This is a small debug sample with multiple changes, not an
-isolated ablation or full-test result.
-
-Entergy answered -4069 after combining utility and nuclear revenue scopes;
-Intel answered 6.4 using US facilities rather than total facilities. Analog
-Devices exhausted turns on action formatting, including literal placeholder
-search values copied from feedback. Metavante retrieved the correct FIS 2010
-acquisition table but emitted malformed search actions instead of a final answer.
-Masco answered 111.97%, which normalizes to 1.1197 and matches. No episode hit the
-context limit in this run. Raw results are in `reports/baseline-first-five-v4.csv`
-and provenance/comparison notes in `reports/baseline-first-five-v4.json`.
-Search and Kibana were deployed successfully, then stopped after the T4 run;
-all cloud apps reported zero active containers.
-
-### Action recovery and per-turn retrieval diagnostics
-
-`baseline_agent/retrieval_diagnostics.py` annotates completed episodes locally
-using the dataset's reference context ID. Gold IDs are returned alongside gold
-answers by the local loader, but GPU requests contain only whitelisted questions.
-For each generation the annotations distinguish gold evidence in its prompt,
-a hit in the search issued that turn (null if no search), active evidence after
-the turn and an ever-hit flag. Replace mode removes earlier API information,
-including when a new API error replaces it; formatting feedback alone retains
-evidence. Append mode retains all retrieved blocks. Model outputs and formatting
-feedback persist in both modes. These checks do not judge alternative evidence.
-
-`evaluation.py` exports `turns.csv` and per-example diagnostics;
-`observability.py` puts the indicators beside each generation in TensorBoard
-Text and adds a per-example retrieval-hit Scalar. The saved v4 run was annotated
-under `retrieval-review` without changing original prompts or answers, and
-`reports/baseline-v4-turn-retrieval.csv` contains the per-turn review table.
-Gold context was retrieved for Intel, Metavante and Masco, but not Entergy or
-Analog Devices. Intel still answered incorrectly; Metavante still exhausted turns.
-
-The prompt now explicitly separates requests for evidence from final answers,
-explains the company child tag and placeholders, and reflects the broad-query
-fallback. Error feedback no longer supplies a complete copyable search example;
-known placeholder values are rejected. A search saying no search is needed gets
-answer-specific feedback. The stop check waits for a completed action after
-closed reasoning, so quoted closing tags inside reasoning cannot stop generation.
-Unclosed reasoning cannot execute a quoted search. These instruction/generation
-changes have local tests but have not been evaluated in another GPU run.
+Old 2B experiment directories, transcripts, TensorBoard events and baseline
+report snapshots were removed at user request. The baseline now uses
+Qwen/Qwen3.5-4B on a T4 in FP16, with 16 GB host RAM. The current prompt,
+reasoning-aware action stopping and local per-turn retrieval diagnostics remain
+in place. Model revision is recorded for every new experiment. Cached model
+weights are separate from experiment outputs and are retained.

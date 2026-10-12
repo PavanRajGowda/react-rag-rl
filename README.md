@@ -11,7 +11,7 @@ For a file-by-file explanation and architecture guide, see the single
 ## Multi-turn RAG baseline and evaluation
 
 `baseline_agent/` contains a Search-R1-style inference controller for
-`Qwen/Qwen3.5-2B`. It loads one question from the pinned FinQA **test** split,
+`Qwen/Qwen3.5-4B`. It loads one question from the pinned FinQA **test** split,
 without putting gold context, answers, company metadata, or year metadata in
 the model prompt. The model generates company/year/query tags and receives
 evidence from the existing private Modal search service. Scoring is performed
@@ -35,7 +35,7 @@ directory as per-question JSON and text files, `results.csv`, and `summary.json`
 The JSON includes each actual model input, output, API response, timing, and
 token counts. The text file is a readable complete interaction transcript.
 CSV and summary files are updated after each question, preserving partial runs.
-Historical one-example transcripts under `data/baseline/runs/` remain unchanged.
+Old baseline runs and their snapshots have been removed at user request.
 Only the newest information block remains in the active prompt by default;
 generated reasoning/search history is retained. To use Search-R1's accumulating
 history, add `--context-mode append`. To select another single question later,
@@ -74,9 +74,7 @@ TensorBoard Text show whether each turn retrieved the gold context, whether it
 was present in that generation's evidence, and whether it was ever retrieved.
 Turns without a search have a blank hit field and `search_performed=False`.
 These are exact context-ID checks; other contexts may contain valid evidence.
-The completed v4 run has an annotated review copy under
-`data/baseline/experiments/81c16ea03897/retrieval-review/`; its original predictions
-and prompts were preserved. Select its `tensorboard` run to inspect the indicators.
+New experiments include these diagnostics automatically.
 
 To resume without rerunning saved questions:
 
