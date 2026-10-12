@@ -248,6 +248,11 @@ failures and partial search responses return 503, rather than empty evidence.
 Results include the intact context, original table, company/report/page/source
 metadata and BM25 score. Ranking uses exact company/year filters, lexical
 matching and stable context-ID tie-breaking. `top_k` is limited to 1–10.
+
+The baseline agent defaults to `--top-k 2` to reduce per-search evidence size,
+while retaining complete tables and context text. Unknown company names can
+return report issuers whose corpus text mentions that name, with the matching
+report years. The agent must explicitly retry using a suggested issuer and year.
 The API verifies local corpus integrity and remote index metadata at startup.
 Protected `/health` checks backend connectivity; `/docs` exposes the schema.
 

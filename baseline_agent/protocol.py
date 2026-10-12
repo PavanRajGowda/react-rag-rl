@@ -10,18 +10,48 @@ class ProtocolError(ValueError):
 
 
 def parse_action(segment):
-    if "<information>" in segment:
+    # Tag mentions in reasoning are not actions.
+    actions = segment.rsplit("</reasoning>", 1)[-1]
+    if "<information>" in actions:
         raise ProtocolError("Only the search service may produce <information>.")
     searches = list(
         re.finditer(
             r"<search>\s*<company>([^<>]+)</company>\s*<year>([^<>]+)</year>\s*<query>([^<>]+)</query>\s*</search>",
-            segment,
+            actions,
             re.DOTALL,
         )
     )
-    answers = list(re.finditer(r"<answer>([^<>]+)</answer>", segment, re.DOTALL))
+    answers = list(re.finditer(r"<answer>([^<>]*)</answer>", actions, re.DOTALL))
     if len(searches) + len(answers) != 1:
-        raise ProtocolError("Produce exactly one complete <search> or <answer> action.")
+        example = "Use <search><company>Company name</company><year>2010</year><query>Financial evidence needed</query></search>."
+        if "<search>" in actions:
+            # Last opening tag avoids swallowing an incidental earlier tag mention.
+            body = actions.rsplit("<search>", 1)[-1]
+            issues = []
+            if "</search>" not in body:
+                issues.append("missing </search> closing tag")
+            body = body.split("</search>", 1)[0]
+            for field in ("company", "year", "query"):
+                opening, closing = f"<{field}>", f"</{field}>"
+                if opening not in body:
+                    issues.append(f"missing {opening} field")
+                elif closing not in body:
+                    issues.append(f"missing {closing} closing tag")
+                elif body.count(opening) != 1 or body.count(closing) != 1:
+                    issues.append(f"duplicate {opening} field; provide it exactly once")
+                elif not body.split(opening, 1)[1].split(closing, 1)[0].strip():
+                    issues.append(f"{opening} must not be empty")
+            if issues:
+                raise ProtocolError(
+                    "Invalid search: " + "; ".join(issues) + ". " + example
+                )
+            raise ProtocolError(
+                "Invalid search: fields must appear exactly once in company, year, query order with no extra text or nested tags. Produce one action per turn. "
+                + example
+            )
+        raise ProtocolError(
+            "Produce exactly one complete <search> or <answer> action. " + example
+        )
     if answers:
         value = answers[0].group(1).strip()
         if not value:
@@ -32,16 +62,16 @@ def parse_action(segment):
         raise ProtocolError(
             f"The year field must contain exactly ONE four-digit report year; received {year!r}. Select one report year and put the financial periods being compared in the query."
         )
-    if (
-        not company
-        or not query
-        or not 1900 <= int(year) <= 2100
-        or len(company) > 200
-        or len(query) > 2000
-    ):
+    if not company or len(company) > 200:
         raise ProtocolError(
-            "Company/query must be nonblank and within API limits; year must be 1900–2100."
+            "<company> must contain 1–200 characters after trimming whitespace."
         )
+    if not query or len(query) > 2000:
+        raise ProtocolError(
+            "<query> must contain 1–2000 characters after trimming whitespace."
+        )
+    if not 1900 <= int(year) <= 2100:
+        raise ProtocolError("<year> must be a report year between 1900 and 2100.")
     return "search", {"company_name": company, "year": int(year), "query": query}
 
 

@@ -192,6 +192,46 @@ def test_agent_reformulates_ambiguity_then_answers():
     assert "Sales: 42" in generator.prompts[2]
     assert result["numeric_validation"] == "not_performed"
     assert requests[1]["company_name"] == "American Tower"
+    assert all(request["top_k"] == 2 for request in requests)
+
+
+@pytest.mark.parametrize(
+    "action,missing",
+    [
+        ("<search>Analog Devices 2011 hedges</search>", "missing <company>"),
+        (
+            "<search><company>Acme</company><query>revenue</query></search>",
+            "missing <year>",
+        ),
+        (
+            "<search><company>Acme</company><year>2010</year></search>",
+            "missing <query>",
+        ),
+        (
+            "<search><company>Acme</company><year>2010</year><query>revenue</query>",
+            "missing </search>",
+        ),
+        (
+            "<search><company></company><year>2010</year><query>revenue</query></search>",
+            "<company> must not be empty",
+        ),
+        (
+            "<search><company>Acme<year>2010</year><query>revenue</query></search>",
+            "missing </company>",
+        ),
+    ],
+)
+def test_search_feedback_identifies_missing_fields(action, missing):
+    with pytest.raises(ProtocolError) as exc:
+        parse_action(action)
+    assert missing in str(exc.value)
+    assert "Use <search><company>" in str(exc.value)
+
+
+def test_information_tag_mention_in_reasoning_is_not_fabricated_evidence():
+    assert parse_action(
+        "<reasoning>Read the <information> block.</reasoning><answer>42</answer>"
+    ) == ("answer", "42")
 
 
 def test_agent_cannot_answer_before_retrieval_and_preserves_backend_failure():

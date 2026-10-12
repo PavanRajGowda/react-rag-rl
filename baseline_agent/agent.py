@@ -13,7 +13,7 @@ from baseline_agent.protocol import (
 
 @dataclass
 class AgentConfig:
-    top_k: int = 5
+    top_k: int = 2
     max_searches: int = 6
     max_turns: int = 8
     max_new_tokens: int = 1024

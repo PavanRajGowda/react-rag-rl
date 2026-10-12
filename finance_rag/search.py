@@ -76,6 +76,7 @@ class SearchError(Exception):
 class Registry:
     def __init__(self, docs):
         self.tickers, self.companies, self.years = {}, {}, {}
+        self.mention_sources = []
         for doc in docs:
             key = doc["company_id"]
             self.tickers.setdefault(doc["ticker"].upper(), set()).add(key)
@@ -83,6 +84,35 @@ class Registry:
                 k: doc[k] for k in ("company_id", "company_name", "ticker")
             }
             self.years.setdefault(key, set()).add(doc["report_year"])
+            self.mention_sources.append(
+                (key, doc["report_year"], doc.get("text", "").casefold())
+            )
+
+    def suggest_mentions(self, name, limit=5):
+        """Discover report issuers mentioning a phrase, without resolving aliases."""
+        words = re.findall(r"[^\W_]+", name.casefold())
+        if not words or len("".join(words)) < 3:
+            return []
+        pattern = re.compile(
+            r"(?<!\w)" + r"\W+".join(map(re.escape, words)) + r"(?!\w)"
+        )
+        found = {}
+        for key, year, text in self.mention_sources:
+            if pattern.search(text):
+                found.setdefault(key, set()).add(year)
+        ranked = sorted(
+            found,
+            key=lambda key: (
+                -len(found[key]),
+                self.companies[key]["company_name"].casefold(),
+                key,
+            ),
+        )
+        return [
+            self.companies[key]
+            | {"report_years": sorted(found[key]), "match_source": "context_mention"}
+            for key in ranked[:limit]
+        ]
 
     def suggest(self, name, limit=5):
         """Rank nearby identities for feedback only; never resolve a suggestion."""
@@ -142,9 +172,15 @@ class Registry:
                 )
             if not name_candidates:
                 suggestions = self.suggest(request.company_name)
+                mentions = self.suggest_mentions(request.company_name)
+                seen = {item["company_id"] for item in mentions}
+                suggestions = (
+                    mentions
+                    + [item for item in suggestions if item["company_id"] not in seen]
+                )[:5]
                 raise SearchError(
                     "unknown_company",
-                    "Company not found. Did you mean one of these candidates? Retry with a listed company name or ticker."
+                    "Company not found as a report issuer. Did you mean one of these candidates? Context-mention candidates are issuers whose reports mention the requested name; report_years lists those reports, not the acquisition date. Retry explicitly with a listed company name or ticker and a report year."
                     if suggestions
                     else "Company not found and no similar names were found. Try a shorter company name or check its spelling.",
                     404,

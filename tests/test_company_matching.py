@@ -186,3 +186,38 @@ def test_unknown_company_suggestions_do_not_resolve_automatically(tmp_path):
         ]
     assert registry.suggest("zzzzzzzz") == []
     assert registry.suggest("Corporation") == []
+
+
+def test_acquired_entity_suggestions_include_issuer_and_mention_years(tmp_path):
+    apple, _ = registry_docs(tmp_path)
+    fis = apple | {
+        "company_id": "fis",
+        "company_name": "Fidelity National Information Services",
+        "ticker": "FIS",
+        "report_year": 2010,
+        "text": "The Metavante acquisition stock awards were 121.4 million.",
+    }
+    registry = Registry([fis, fis, fis | {"report_year": 2012}])
+    with pytest.raises(SearchError) as exc:
+        registry.resolve(
+            SearchRequest(company_name="Metavante", year=2018, query="purchase price"),
+            name_candidates=set(),
+        )
+    assert exc.value.code == "unknown_company"
+    assert exc.value.candidates[0] == {
+        "company_id": "fis",
+        "company_name": fis["company_name"],
+        "ticker": "FIS",
+        "report_years": [2010, 2012],
+        "match_source": "context_mention",
+    }
+    assert registry.suggest_mentions("Meta") == []  # whole phrase, not substring
+    assert registry.suggest_mentions("zzzzzz") == []
+    assert (
+        registry.resolve(
+            SearchRequest(ticker="FIS", year=2010, query="Metavante stock awards")
+        )["company_id"]
+        == "fis"
+    )
+    with pytest.raises(SearchError, match="Available report years"):
+        registry.resolve(SearchRequest(ticker="FIS", year=2018, query="Metavante"))

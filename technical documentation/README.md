@@ -154,7 +154,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 44 test cases with observability dependencies, including five parameterized validation
+The full suite collects 52 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -349,12 +349,26 @@ The model emits:
 
 Generation stops at `</search>`. The controller parses the child tags and
 calls `SearchService.search.remote()` with model-chosen arguments and the
-configured `top_k`. Only actual service output is formatted inside
+configured `top_k` (baseline default: 2). Full context formatting is preserved;
+this limits the number of contexts, not their individual size. Parser feedback
+names missing child fields, closing tags, and empty fields and supplies a valid
+search template. Only actual service output is formatted inside
 `<information>...</information>`. Candidate-company errors are supplied as
 information so the model can reformulate. Infrastructure exceptions abort the
 debugging run rather than being presented as evidence or a negative reward.
 Generation then continues from the resulting prompt. An `<answer>` ends the
 episode after at least one nonempty successful retrieval.
+
+For an unknown report issuer, `finance_rag/search.py` also checks whole-phrase
+mentions in the loaded corpus text. These suggestions identify the issuer,
+ticker, and years of reports containing the phrase (`match_source=context_mention`).
+They are suggestions only: the model must choose a new company and report year.
+For example, Metavante appears in FIS reports for 2010 and 2012; the acquisition
+purchase-price table is in the 2010 report. The company/year filters remain exact
+after resolution. No gold question metadata or hand-written acquisition aliases
+are used. This local scan is intended for the current small corpus; a larger
+corpus should use an Elasticsearch discovery query. Ordinary API requests still
+default to five hits; the baseline explicitly requests two.
 
 The initial prompt contains the question only. It never receives the row's
 gold context, answer, company name, ticker, or report year. The readiness probe

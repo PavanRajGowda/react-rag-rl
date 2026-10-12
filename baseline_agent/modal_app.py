@@ -104,7 +104,7 @@ def main(
     example_index: int = 0,
     context_mode: str = "replace",
     max_searches: int = 6,
-    top_k: int = 5,
+    top_k: int = 2,
     num_examples: int = 1,
     dashboard: bool = False,
     resume: str = "",
