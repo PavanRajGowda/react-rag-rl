@@ -492,3 +492,23 @@ searches on an unknown company; case 4 matched. Summed per-question inference
 time was 326.02 seconds. The initial telemetry import failure interrupted the
 batch after case 0; that result was preserved and cases 1–4 were resumed on
 one loaded T4 model. No predictions were changed or rerun to improve scores.
+
+### Fresh run after schema v4 deployment
+
+Experiment `81c16ea03897` reran indices 0–4 on the same pinned model revision,
+with K=2, updated parser feedback and direct broad-query fallback. All five
+completed locally with saved traces and dashboard events. Number Match remained
+1/5 (20%), and summed episode inference time was 196.77 seconds versus 326.02
+seconds previously. This is a small debug sample with multiple changes, not an
+isolated ablation or full-test result.
+
+Entergy answered -4069 after combining utility and nuclear revenue scopes;
+Intel answered 6.4 using US facilities rather than total facilities. Analog
+Devices exhausted turns on action formatting, including literal placeholder
+search values copied from feedback. Metavante retrieved the correct FIS 2010
+acquisition table but emitted malformed search actions instead of a final answer.
+Masco answered 111.97%, which normalizes to 1.1197 and matches. No episode hit the
+context limit in this run. Raw results are in `reports/baseline-first-five-v4.csv`
+and provenance/comparison notes in `reports/baseline-first-five-v4.json`.
+Search and Kibana were deployed successfully, then stopped after the T4 run;
+all cloud apps reported zero active containers.
