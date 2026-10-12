@@ -71,31 +71,31 @@ the same process, client connection pool, registry, and immutable index.
 
 The audited revision is `adf7fe1541ac37351ce1142544d8e3b43010ed92` and the
 corpus version is `finqa-301676584646`. The current index name appends the search
-schema: `finqa-301676584646-search-v2`. The CLI's default revision is
+schema: `finqa-301676584646-search-v3`. The CLI's default revision is
 `main`; pass the audited SHA to reproduce these exact artifacts.
 
 ### Search handling
 
-1. `SearchRequest` validates the arguments. At least one company identifier,
-   an integer report year, and a nonblank query are required. Extra fields
-   are rejected. `top_k` defaults to 5 and is bounded to 1–10.
-2. Elasticsearch performs analyzed `match` on `company_name` using the standard
-   analyzer and `operator: and`. An aggregation collects all distinct matching
-   company IDs, independently of report year or requested result count.
-   `Registry` intersects those candidates with an optional exact ticker,
-   returns names/tickers/IDs when ambiguity remains, and checks the report year.
-3. `query_body()` applies exact company-ID and report-year filters, then
-   BM25 matching over `text` and `table_markdown` with `multi_match`.
-4. Results sort by descending score and then ascending `context_id`, providing
-   a stable tie-break. Complete `_source` documents are returned with scores.
+1. `SearchRequest` validates required identifiers, report year and query;
+   `top_k` defaults to 2 and remains bounded to 1–10.
+2. `retrieval.py` queries Elasticsearch for issuer-name matches and aggregates
+   identities and available report years using paginated composite buckets.
+   An optional exact ticker narrows matches. Primary ambiguity returns an error.
+3. If no issuer matches, Elasticsearch phrase-matches `company_synonyms`.
+   Single matches resolve indirectly; multiple matches remain marked ambiguous
+   and can return evidence across those issuers at the requested year.
+4. Any resolved issuer lacking the requested year returns a year error with
+   candidates and available years. This never triggers broad retrieval.
+5. If neither issuer nor synonym matches, Elasticsearch searches text/table
+   with the requested name plus query across all issuers and years. The response
+   explicitly reports that both filters were relaxed.
+6. Evidence sorts by score then context ID. Full original contexts are returned
+   with scores and the added derived organization field. Empty results carry
+   `no_results`; incomplete/time-out responses are infrastructure errors.
 
-**Year means the year of the report.** A 2002 report may contain financial
-figures for 2001 and 2000; those financial periods belong in the query.
-Short names such as `apple` match full names containing that word. Every word
-in a multiword name must match. This is analyzed word matching, not fuzzy or
-substring matching; historical aliases are still not curated. Partial or
-truncated company aggregations are infrastructure errors, not a reason to
-choose one company silently.
+**Year is the report year**, not the acquisition date or a period in the table.
+No in-memory corpus text scan is performed during requests. The source file is
+read for indexing and integrity validation only by the live service.
 
 ## 4. File-by-file map
 
@@ -154,7 +154,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 52 test cases with observability dependencies, including five parameterized validation
+The full suite collects 63 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -198,13 +198,13 @@ currently running instance.
 | Fields | Mapping | Why |
 |---|---|---|
 | Company/report/context identifiers, ticker, CIK, and source path | `keyword` | Exact filtering, stable identifiers, stored source metadata |
-| `company_name` | `text` with standard analyzer and a `keyword` subfield | Analyzed company-name resolution; use `company_name.keyword` for exact matching/aggregations |
+| `company_name` | `text` with standard analyzer and a `keyword` subfield | Analyzed company-name resolution; use `company_name.keyword` for exact matching/aggregations || `company_synonyms` | Array of analyzed `text` with a `keyword` subfield | spaCy ORG mentions unioned by issuer; lower-priority phrase matching after issuer-name resolution fails |
 | `report_year`, `page_number` | `integer` | Numeric metadata with explicit conversion during preparation |
 | `text`, `table_markdown` | `text` | BM25 retrieval over narrative and tabular content |
 | `pre_text`, `post_text` | `text` with indexing disabled | Preserve separately in `_source`; their narrative is already represented in the full context |
 
 Mappings are strict: unexpected fields are rejected. The manifest is stored
-in mapping `_meta`, alongside `search_schema_version: 2`. The index name comes from a hash of contexts sorted by
+in mapping `_meta`, alongside `search_schema_version: 3`. The index name comes from a hash of contexts sorted by
 ID, serialized with sorted JSON keys and UTF-8/LF bytes, plus a schema suffix.
 The corpus hash is unchanged by this mapping update. Old indexes must be
 rebuilt under the new name; the HTTP API rejects incompatible schemas.
@@ -359,16 +359,10 @@ debugging run rather than being presented as evidence or a negative reward.
 Generation then continues from the resulting prompt. An `<answer>` ends the
 episode after at least one nonempty successful retrieval.
 
-For an unknown report issuer, `finance_rag/search.py` also checks whole-phrase
-mentions in the loaded corpus text. These suggestions identify the issuer,
-ticker, and years of reports containing the phrase (`match_source=context_mention`).
-They are suggestions only: the model must choose a new company and report year.
-For example, Metavante appears in FIS reports for 2010 and 2012; the acquisition
-purchase-price table is in the 2010 report. The company/year filters remain exact
-after resolution. No gold question metadata or hand-written acquisition aliases
-are used. This local scan is intended for the current small corpus; a larger
-corpus should use an Elasticsearch discovery query. Ordinary API requests still
-default to five hits; the baseline explicitly requests two.
+The service returns resolution metadata and full contexts. `protocol.py` forwards
+that explanation, candidates and applied filters inside the information block,
+so indirect or unrestricted retrieval is visible to the model. The previous
+local `context_mention` shortcut has been removed.
 
 The initial prompt contains the question only. It never receives the row's
 gold context, answer, company name, ticker, or report year. The readiness probe
@@ -427,24 +421,55 @@ debugging, so the result is not an unbiased accuracy estimate. Numeric and
 strict output-format validation were not performed. See the saved summary and
 the local generated transcript for the actual interactions.
 
-### Company-not-found suggestions
+### Indexed organization mentions and migration
 
-`Registry.suggest()` supplies at most five candidate identities when strict
-analyzed company matching returns none. It ranks shared company-name words,
-ignoring common legal suffixes for this ranking only. If shared-word matches
-exist, it excludes weaker spelling-only matches; otherwise it uses standard
-library `SequenceMatcher` token similarity with a 0.7 threshold. It deduplicates
-by company ID and uses stable name/ID tie-breaks. Thus Entergy Louisiana can
-suggest Entergy, while unrelated names can receive an empty candidate list.
+`finance_rag/organizations.py` runs the pinned spaCy `en_core_web_sm` 3.8.0
+pipeline in batches during index preparation. It collects ORG entities, normalizes their
+whitespace/case, excludes the issuer's identical full name, deduplicates and
+unions by company ID. `index.py` writes this list to each issuer's documents as
+`company_synonyms`, with analyzed text and a keyword subfield. These are
+mentions, not proven identity synonyms. Extraction never changes source text.
+NER can miss organizations or include unrelated organizations; ambiguity and
+the broad fallback remain important. Lowercase FinQA text particularly reduces
+NER quality. No curated Metavante alias or gold metadata is injected.
 
-Both HTTP and private Modal errors remain `unknown_company` and include the
-candidate names, tickers and IDs. These are ranked suggestions, not identity
-confirmation or an alias database. The normal all-words resolver and exact
-company/year evidence filters are unchanged. The baseline prompt tells the
-model to retry with a suggested full name. This code change needs a search
-service redeployment; no new index mapping or corpus preparation is required.
-The saved baseline smoke transcript predates this change and retains its
-original formatting and retries; fewer future retries have not yet been measured.
+`finance_rag/retrieval.py` is the shared async resolution/retrieval engine.
+The HTTP API awaits it; the embedded service wraps its synchronous Elasticsearch
+client and runs the coroutine in its worker thread. Both use the index for all
+identity, year and evidence queries. `Registry` remains only a legacy offline
+oracle-benchmark helper and is not constructed by either live service.
+
+The schema is now v3. Existing v2 indices are not overwritten. Reindex external
+Elasticsearch with `python -m finance_rag.index`; redeploy Modal search and
+optional Kibana to build their independent v3 copies. Run `python -m finance_rag.organizations` once to prepare
+`data/finqa/organizations.json` before deploying Modal. This derived index-input
+artifact contains issuer organization lists and the source corpus hash plus
+model version. The indexer validates it before use; it never participates in
+request-time retrieval. Without a prepared artifact the standalone indexer
+extracts organizations directly. Modal search and Kibana mount the prepared
+artifact to avoid repeated NLP work at cold start. The initial uncached Modal
+integration attempt exceeded its five-minute startup budget and was stopped.
+The locked requirements include spaCy and its pinned model. Mapping metadata records extraction model
+and version in addition to the original corpus hash.
+
+| New file | Responsibility |
+|---|---|
+| `finance_rag/organizations.py` | Index-time spaCy extraction and issuer-level organization lists |
+| `finance_rag/retrieval.py` | Elasticsearch-only issuer/synonym resolution, year checks, broad fallback and response explanations |
+| `tests/test_retrieval.py` | Resolution precedence, year failures, ambiguity with evidence, filter relaxation, composite pagination and extraction preservation |
+| `reports/elasticsearch-resolution-smoke.json` | Full responses from the temporary CPU integration check, if run |
+
+The baseline change is limited to forwarding the API's explanation metadata
+alongside evidence. Its generation and training logic is unchanged.
+
+The cached CPU integration check passed on the real v3 index: Apple resolved
+by issuer name; Alltel Information Services resolved via organization synonyms;
+Metavante used broad retrieval and included `finqa_test_ctx_77` (FIS 2010,
+page 70), including when the requested year was 2018. spaCy did not extract
+Metavante in this lowercased corpus, so this case explicitly exercises the
+unresolved-name fallback. The saved report contains full request/response pairs.
+These checks do not constitute a new model-accuracy evaluation. Temporary cloud
+test apps were stopped after verification; persistent deployments were not updated.
 
 ## 10. Numeric evaluation and local observability
 

@@ -1,0 +1,529 @@
+[
+  {
+    "request": {
+      "company_name": "Apple",
+      "year": 2002,
+      "query": "net sales"
+    },
+    "response": {
+      "status": "ok",
+      "code": "results",
+      "corpus_version": "finqa-301676584646",
+      "match_method": "company_name",
+      "message": "Matched report issuer and applied the requested report year.",
+      "requested_company": "Apple",
+      "requested_year": 2002,
+      "applied_filters": {
+        "company_ids": [
+          "cik:320193"
+        ],
+        "report_year": 2002
+      },
+      "ambiguous": false,
+      "candidates": [
+        {
+          "company_id": "cik:320193",
+          "company_name": "Apple Inc.",
+          "ticker": "AAPL",
+          "report_years": [
+            2002,
+            2003,
+            2004,
+            2005,
+            2006,
+            2007,
+            2008,
+            2010,
+            2011,
+            2012,
+            2013,
+            2014,
+            2015,
+            2016,
+            2017,
+            2018
+          ]
+        }
+      ],
+      "resolved_company": {
+        "company_id": "cik:320193",
+        "company_name": "Apple Inc.",
+        "ticker": "AAPL"
+      },
+      "year": 2002,
+      "total_hits": 3,
+      "results": [
+        {
+          "company_cik": 320193,
+          "company_id": "cik:320193",
+          "company_name": "Apple Inc.",
+          "context_id": "finqa_train_ctx_836",
+          "page_number": 23,
+          "post_text": ".",
+          "pre_text": "in a new business model such as the retail segment is inherently risky , particularly in light of the significant investment involved , the current economic climate , and the fixed nature of a substantial portion of the retail segment's operating expenses .\nresults for this segment are dependent upon a number of risks and uncertainties , some of which are discussed below under the heading \"factors that may affect future results and financial condition.\" backlog in the company's experience , the actual amount of product backlog at any particular time is not a meaningful indication of its future business prospects .\nin particular , backlog often increases in anticipation of or immediately following new product introductions because of over- ordering by dealers anticipating shortages .\nbacklog often is reduced once dealers and customers believe they can obtain sufficient supply .\nbecause of the foregoing , backlog cannot be considered a reliable indicator of the company's ability to achieve any particular level of revenue or financial performance .\nfurther information regarding the company's backlog may be found below under the heading \"factors that may affect future results and financial condition.\" gross margin gross margin for the three fiscal years ended september 28 , 2002 are as follows ( in millions , except gross margin percentages ) : gross margin increased to 28% ( 28 % ) of net sales in 2002 from 23% ( 23 % ) in 2001 .\nas discussed below , gross margin in 2001 was unusually low resulting from negative gross margin of 2% ( 2 % ) experienced in the first quarter of 2001 .\nas a percentage of net sales , the company's quarterly gross margins declined during fiscal 2002 from 31% ( 31 % ) in the first quarter down to 26% ( 26 % ) in the fourth quarter .\nthis decline resulted from several factors including a rise in component costs as the year progressed and aggressive pricing by the company across its products lines instituted as a result of continued pricing pressures in the personal computer industry .\nthe company anticipates that its gross margin and the gross margin of the overall personal computer industry will remain under pressure throughout fiscal 2003 in light of weak economic conditions , flat demand for personal computers in general , and the resulting pressure on prices .\nthe foregoing statements regarding anticipated gross margin in 2003 and the general demand for personal computers during 2003 are forward- looking .\ngross margin could differ from anticipated levels because of several factors , including certain of those set forth below in the subsection entitled \"factors that may affect future results and financial condition.\" there can be no assurance that current gross margins will be maintained , targeted gross margin levels will be achieved , or current margins on existing individual products will be maintained .\nin general , gross margins and margins on individual products will remain under significant downward pressure due to a variety of factors , including continued industry wide global pricing pressures , increased competition , compressed product life cycles , potential increases in the cost and availability of raw material and outside manufacturing services , and potential changes to the company's product mix , including higher unit sales of consumer products with lower average selling prices and lower gross margins .\nin response to these downward pressures , the company expects it will continue to take pricing actions with respect to its products .\ngross margins could also be affected by the company's ability to effectively manage quality problems and warranty costs and to stimulate demand for certain of its products .\nthe company's operating strategy and pricing take into account anticipated changes in foreign currency exchange rates over time ; however , the company's results of operations can be significantly affected in the short-term by fluctuations in exchange rates .\nthe company orders components for its products and builds inventory in advance of product shipments .\nbecause the company's markets are volatile and subject to rapid technology and price changes , there is a risk the company will forecast incorrectly and produce or order from third parties excess or insufficient inventories of particular products or components .\nthe company's operating results and financial condition have been in the past and may in the future be materially adversely affected by the company's ability to manage its inventory levels and outstanding purchase commitments and to respond to short-term shifts in customer demand patterns .\ngross margin declined to 23% ( 23 % ) of net sales in 2001 from 27% ( 27 % ) in 2000 .\nthis decline resulted primarily from gross margin of negative 2% ( 2 % ) experienced during the first quarter of 2001 compared to 26% ( 26 % ) gross margin for the same quarter in 2000 .\nin addition to lower than normal net .",
+          "report_id": "cik:320193:2002",
+          "report_year": 2002,
+          "source_file": "pdf/AAPL/2002/page_23.pdf",
+          "table_markdown": "|    |                         | 2002         | 2001         | 2000         |\n|---:|:------------------------|:-------------|:-------------|:-------------|\n|  0 | net sales               | $ 5742       | $ 5363       | $ 7983       |\n|  1 | cost of sales           | 4139         | 4128         | 5817         |\n|  2 | gross margin            | $ 1603       | $ 1235       | $ 2166       |\n|  3 | gross margin percentage | 28% ( 28 % ) | 23% ( 23 % ) | 27% ( 27 % ) |",
+          "text": "in a new business model such as the retail segment is inherently risky , particularly in light of the significant investment involved , the current economic climate , and the fixed nature of a substantial portion of the retail segment's operating expenses .\nresults for this segment are dependent upon a number of risks and uncertainties , some of which are discussed below under the heading \"factors that may affect future results and financial condition.\" backlog in the company's experience , the actual amount of product backlog at any particular time is not a meaningful indication of its future business prospects .\nin particular , backlog often increases in anticipation of or immediately following new product introductions because of over- ordering by dealers anticipating shortages .\nbacklog often is reduced once dealers and customers believe they can obtain sufficient supply .\nbecause of the foregoing , backlog cannot be considered a reliable indicator of the company's ability to achieve any particular level of revenue or financial performance .\nfurther information regarding the company's backlog may be found below under the heading \"factors that may affect future results and financial condition.\" gross margin gross margin for the three fiscal years ended september 28 , 2002 are as follows ( in millions , except gross margin percentages ) : gross margin increased to 28% ( 28 % ) of net sales in 2002 from 23% ( 23 % ) in 2001 .\nas discussed below , gross margin in 2001 was unusually low resulting from negative gross margin of 2% ( 2 % ) experienced in the first quarter of 2001 .\nas a percentage of net sales , the company's quarterly gross margins declined during fiscal 2002 from 31% ( 31 % ) in the first quarter down to 26% ( 26 % ) in the fourth quarter .\nthis decline resulted from several factors including a rise in component costs as the year progressed and aggressive pricing by the company across its products lines instituted as a result of continued pricing pressures in the personal computer industry .\nthe company anticipates that its gross margin and the gross margin of the overall personal computer industry will remain under pressure throughout fiscal 2003 in light of weak economic conditions , flat demand for personal computers in general , and the resulting pressure on prices .\nthe foregoing statements regarding anticipated gross margin in 2003 and the general demand for personal computers during 2003 are forward- looking .\ngross margin could differ from anticipated levels because of several factors , including certain of those set forth below in the subsection entitled \"factors that may affect future results and financial condition.\" there can be no assurance that current gross margins will be maintained , targeted gross margin levels will be achieved , or current margins on existing individual products will be maintained .\nin general , gross margins and margins on individual products will remain under significant downward pressure due to a variety of factors , including continued industry wide global pricing pressures , increased competition , compressed product life cycles , potential increases in the cost and availability of raw material and outside manufacturing services , and potential changes to the company's product mix , including higher unit sales of consumer products with lower average selling prices and lower gross margins .\nin response to these downward pressures , the company expects it will continue to take pricing actions with respect to its products .\ngross margins could also be affected by the company's ability to effectively manage quality problems and warranty costs and to stimulate demand for certain of its products .\nthe company's operating strategy and pricing take into account anticipated changes in foreign currency exchange rates over time ; however , the company's results of operations can be significantly affected in the short-term by fluctuations in exchange rates .\nthe company orders components for its products and builds inventory in advance of product shipments .\nbecause the company's markets are volatile and subject to rapid technology and price changes , there is a risk the company will forecast incorrectly and produce or order from third parties excess or insufficient inventories of particular products or components .\nthe company's operating results and financial condition have been in the past and may in the future be materially adversely affected by the company's ability to manage its inventory levels and outstanding purchase commitments and to respond to short-term shifts in customer demand patterns .\ngross margin declined to 23% ( 23 % ) of net sales in 2001 from 27% ( 27 % ) in 2000 .\nthis decline resulted primarily from gross margin of negative 2% ( 2 % ) experienced during the first quarter of 2001 compared to 26% ( 26 % ) gross margin for the same quarter in 2000 .\nin addition to lower than normal net ._|    |                         | 2002         | 2001         | 2000         |\n|---:|:------------------------|:-------------|:-------------|:-------------|\n|  0 | net sales               | $ 5742       | $ 5363       | $ 7983       |\n|  1 | cost of sales           | 4139         | 4128         | 5817         |\n|  2 | gross margin            | $ 1603       | $ 1235       | $ 2166       |\n|  3 | gross margin percentage | 28% ( 28 % ) | 23% ( 23 % ) | 27% ( 27 % ) |_.",
+          "ticker": "AAPL",
+          "company_synonyms": [
+            "-104",
+            "aoci",
+            "apple inc",
+            "apple inc .",
+            "arm holdings plc",
+            "arthur d",
+            "campbell",
+            "dow jones & co .",
+            "drexler holds",
+            "earthlink , inc .",
+            "fmr corp .",
+            "individual european union",
+            "irs",
+            "levinson 2019s",
+            "macintosh",
+            "s&p",
+            "samsung",
+            "samsung electronics co. , ltd",
+            "samsung electronics co. , ltd .",
+            "samsung electronics co. , ltd and",
+            "sec",
+            "sep-11 apple inc . s&p",
+            "sep-12 apple inc . s&p",
+            "standard & poor",
+            "the european union",
+            "the internal revenue service",
+            "the securities exchange act",
+            "treasury",
+            "virnetx , inc .",
+            "virnetx , inc . v . apple inc .",
+            "zayante , inc."
+          ],
+          "score": 5.7063875
+        },
+        {
+          "company_cik": 320193,
+          "company_id": "cik:320193",
+          "company_name": "Apple Inc.",
+          "context_id": "finqa_train_ctx_1375",
+          "page_number": 26,
+          "post_text": "total other income and expense .",
+          "pre_text": "other income and expense for the three fiscal years ended september 28 , 2002 are as follows ( in millions ) : gains and losses on non-current investments investments categorized as non-current debt and equity investments on the consolidated balance sheet are in equity and debt instruments of public companies .\nthe company's non-current debt and equity investments , and certain investments in private companies carried in other assets , have been categorized as available-for-sale requiring that they be carried at fair value with unrealized gains and losses , net of taxes , reported in equity as a component of accumulated other comprehensive income .\nhowever , the company recognizes an impairment charge to earnings in the event a decline in fair value below the cost basis of one of these investments is determined to be other-than-temporary .\nthe company includes recognized gains and losses resulting from the sale or from other-than-temporary declines in fair value associated with these investments in other income and expense .\nfurther information related to the company's non-current debt and equity investments may be found in part ii , item 8 of this form 10-k at note 2 of notes to consolidated financial statements .\nduring 2002 , the company determined that declines in the fair value of certain of these investments were other-than-temporary .\nas a result , the company recognized a $ 44 million charge to earnings to write-down the basis of its investment in earthlink , inc .\n( earthlink ) , a $ 6 million charge to earnings to write-down the basis of its investment in akamai technologies , inc .\n( akamai ) , and a $ 15 million charge to earnings to write-down the basis of its investment in a private company investment .\nthese losses in 2002 were partially offset by the sale of 117000 shares of earthlink stock for net proceeds of $ 2 million and a gain before taxes of $ 223000 , the sale of 250000 shares of akamai stock for net proceeds of $ 2 million and a gain before taxes of $ 710000 , and the sale of approximately 4.7 million shares of arm holdings plc ( arm ) stock for both net proceeds and a gain before taxes of $ 21 million .\nduring 2001 , the company sold a total of approximately 1 million shares of akamai stock for net proceeds of $ 39 million and recorded a gain before taxes of $ 36 million , and sold a total of approximately 29.8 million shares of arm stock for net proceeds of $ 176 million and recorded a gain before taxes of $ 174 million .\nthese gains during 2001 were partially offset by a $ 114 million charge to earnings that reflected an other- than-temporary decline in the fair value of the company's investment in earthlink and an $ 8 million charge that reflected an other-than- temporary decline in the fair value of certain private company investments .\nduring 2000 , the company sold a total of approximately 45.2 million shares of arm stock for net proceeds of $ 372 million and a gain before taxes of $ 367 million .\nthe combined carrying value of the company's investments in earthlink , akamai , and arm as of september 28 , 2002 , was $ 39 million .\nthe company believes it is likely there will continue to be significant fluctuations in the fair value of these investments in the future .\naccounting for derivatives and cumulative effect of accounting change on october 1 , 2000 , the company adopted statement of financial accounting standard ( sfas ) no .\n133 , accounting for derivative instruments and hedging activities .\nsfas no .\n133 established accounting and reporting standards for derivative instruments , hedging activities , and exposure definition .\nnet of the related income tax effect of approximately $ 5 million , adoption of sfas no .\n133 resulted in a favorable cumulative-effect-type adjustment to net income of approximately $ 12 million for the first quarter of 2001 .\nthe $ 17 million gross transition adjustment was comprised of a $ 23 million favorable adjustment for the restatement to fair value of the derivative component of the company's investment in samsung electronics co. , ltd .\n( samsung ) , partially offset by the unfavorable adjustments to certain foreign currency and interest rate derivatives .\nsfas no .\n133 also required the company to adjust the carrying value of the derivative component of its investment in samsung to earnings during the first quarter of 2001 , the before tax effect of which was an unrealized loss of approximately $ 13 million .\ninterest and other income , net net interest and other income was $ 112 million in fiscal 2002 , compared to $ 217 million in fiscal 2001 .\nthis $ 105 million or 48% ( 48 % ) decrease is .",
+          "report_id": "cik:320193:2002",
+          "report_year": 2002,
+          "source_file": "pdf/AAPL/2002/page_26.pdf",
+          "table_markdown": "|    |                                                 | 2002         | 2001       | 2000       |\n|---:|:------------------------------------------------|:-------------|:-----------|:-----------|\n|  0 | gains ( losses ) on non-current investments net | $ -42 ( 42 ) | $ 88       | $ 367      |\n|  1 | unrealized loss on convertible securities       | $ 2014       | -13 ( 13 ) | $ 2014     |\n|  2 | interest income                                 | $ 118        | $ 218      | $ 210      |\n|  3 | interest expense                                | -11 ( 11 )   | -16 ( 16 ) | -21 ( 21 ) |\n|  4 | miscellaneous other income and expense          | 5            | 15         | 14         |\n|  5 | interest and other income net                   | $ 112        | $ 217      | $ 203      |\n|  6 | total other income and expense                  | $ 70         | $ 292      | $ 570      |",
+          "text": "other income and expense for the three fiscal years ended september 28 , 2002 are as follows ( in millions ) : gains and losses on non-current investments investments categorized as non-current debt and equity investments on the consolidated balance sheet are in equity and debt instruments of public companies .\nthe company's non-current debt and equity investments , and certain investments in private companies carried in other assets , have been categorized as available-for-sale requiring that they be carried at fair value with unrealized gains and losses , net of taxes , reported in equity as a component of accumulated other comprehensive income .\nhowever , the company recognizes an impairment charge to earnings in the event a decline in fair value below the cost basis of one of these investments is determined to be other-than-temporary .\nthe company includes recognized gains and losses resulting from the sale or from other-than-temporary declines in fair value associated with these investments in other income and expense .\nfurther information related to the company's non-current debt and equity investments may be found in part ii , item 8 of this form 10-k at note 2 of notes to consolidated financial statements .\nduring 2002 , the company determined that declines in the fair value of certain of these investments were other-than-temporary .\nas a result , the company recognized a $ 44 million charge to earnings to write-down the basis of its investment in earthlink , inc .\n( earthlink ) , a $ 6 million charge to earnings to write-down the basis of its investment in akamai technologies , inc .\n( akamai ) , and a $ 15 million charge to earnings to write-down the basis of its investment in a private company investment .\nthese losses in 2002 were partially offset by the sale of 117000 shares of earthlink stock for net proceeds of $ 2 million and a gain before taxes of $ 223000 , the sale of 250000 shares of akamai stock for net proceeds of $ 2 million and a gain before taxes of $ 710000 , and the sale of approximately 4.7 million shares of arm holdings plc ( arm ) stock for both net proceeds and a gain before taxes of $ 21 million .\nduring 2001 , the company sold a total of approximately 1 million shares of akamai stock for net proceeds of $ 39 million and recorded a gain before taxes of $ 36 million , and sold a total of approximately 29.8 million shares of arm stock for net proceeds of $ 176 million and recorded a gain before taxes of $ 174 million .\nthese gains during 2001 were partially offset by a $ 114 million charge to earnings that reflected an other- than-temporary decline in the fair value of the company's investment in earthlink and an $ 8 million charge that reflected an other-than- temporary decline in the fair value of certain private company investments .\nduring 2000 , the company sold a total of approximately 45.2 million shares of arm stock for net proceeds of $ 372 million and a gain before taxes of $ 367 million .\nthe combined carrying value of the company's investments in earthlink , akamai , and arm as of september 28 , 2002 , was $ 39 million .\nthe company believes it is likely there will continue to be significant fluctuations in the fair value of these investments in the future .\naccounting for derivatives and cumulative effect of accounting change on october 1 , 2000 , the company adopted statement of financial accounting standard ( sfas ) no .\n133 , accounting for derivative instruments and hedging activities .\nsfas no .\n133 established accounting and reporting standards for derivative instruments , hedging activities , and exposure definition .\nnet of the related income tax effect of approximately $ 5 million , adoption of sfas no .\n133 resulted in a favorable cumulative-effect-type adjustment to net income of approximately $ 12 million for the first quarter of 2001 .\nthe $ 17 million gross transition adjustment was comprised of a $ 23 million favorable adjustment for the restatement to fair value of the derivative component of the company's investment in samsung electronics co. , ltd .\n( samsung ) , partially offset by the unfavorable adjustments to certain foreign currency and interest rate derivatives .\nsfas no .\n133 also required the company to adjust the carrying value of the derivative component of its investment in samsung to earnings during the first quarter of 2001 , the before tax effect of which was an unrealized loss of approximately $ 13 million .\ninterest and other income , net net interest and other income was $ 112 million in fiscal 2002 , compared to $ 217 million in fiscal 2001 .\nthis $ 105 million or 48% ( 48 % ) decrease is ._|    |                                                 | 2002         | 2001       | 2000       |\n|---:|:------------------------------------------------|:-------------|:-----------|:-----------|\n|  0 | gains ( losses ) on non-current investments net | $ -42 ( 42 ) | $ 88       | $ 367      |\n|  1 | unrealized loss on convertible securities       | $ 2014       | -13 ( 13 ) | $ 2014     |\n|  2 | interest income                                 | $ 118        | $ 218      | $ 210      |\n|  3 | interest expense                                | -11 ( 11 )   | -16 ( 16 ) | -21 ( 21 ) |\n|  4 | miscellaneous other income and expense          | 5            | 15         | 14         |\n|  5 | interest and other income net                   | $ 112        | $ 217      | $ 203      |\n|  6 | total other income and expense                  | $ 70         | $ 292      | $ 570      |_total other income and expense .",
+          "ticker": "AAPL",
+          "company_synonyms": [
+            "-104",
+            "aoci",
+            "apple inc",
+            "apple inc .",
+            "arm holdings plc",
+            "arthur d",
+            "campbell",
+            "dow jones & co .",
+            "drexler holds",
+            "earthlink , inc .",
+            "fmr corp .",
+            "individual european union",
+            "irs",
+            "levinson 2019s",
+            "macintosh",
+            "s&p",
+            "samsung",
+            "samsung electronics co. , ltd",
+            "samsung electronics co. , ltd .",
+            "samsung electronics co. , ltd and",
+            "sec",
+            "sep-11 apple inc . s&p",
+            "sep-12 apple inc . s&p",
+            "standard & poor",
+            "the european union",
+            "the internal revenue service",
+            "the securities exchange act",
+            "treasury",
+            "virnetx , inc .",
+            "virnetx , inc . v . apple inc .",
+            "zayante , inc."
+          ],
+          "score": 1.8047338
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "company_name": "Alltel Information Services",
+      "year": 2010,
+      "query": "acquisition"
+    },
+    "response": {
+      "status": "ok",
+      "code": "results",
+      "corpus_version": "finqa-301676584646",
+      "match_method": "company_synonyms",
+      "message": "No issuer name matched. Matched organization names extracted into company_synonyms; these may be aliases, acquisitions, subsidiaries, partners, or other mentioned organizations. Applied the requested report year.",
+      "requested_company": "Alltel Information Services",
+      "requested_year": 2010,
+      "applied_filters": {
+        "company_ids": [
+          "cik:1136893"
+        ],
+        "report_year": 2010
+      },
+      "ambiguous": false,
+      "candidates": [
+        {
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "ticker": "FIS",
+          "report_years": [
+            2006,
+            2007,
+            2010,
+            2012,
+            2016,
+            2017
+          ],
+          "matched_synonym": "Alltel Information Services"
+        }
+      ],
+      "resolved_company": {
+        "company_id": "cik:1136893",
+        "company_name": "Fidelity National Information Services",
+        "ticker": "FIS"
+      },
+      "year": 2010,
+      "total_hits": 2,
+      "results": [
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_test_ctx_77",
+          "page_number": 70,
+          "post_text": "we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "pre_text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : .",
+          "report_id": "cik:1136893:2010",
+          "report_year": 2010,
+          "source_file": "pdf/FIS/2010/page_70.pdf",
+          "table_markdown": "|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |",
+          "text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : ._|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |_we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 2.5423691
+        },
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_train_ctx_1960",
+          "page_number": 93,
+          "post_text": "at december 31 , 2010 and 2009 , the total unrecognized compensation cost related to non-vested stock awards is $ 129.3 million and $ 93.5 million , respectively , which is expected to be recognized in pre-tax income over a weighted average period of 1.7 years as of both year ends .\nthe company granted a total of 1.5 million restricted stock awards at prices ranging from $ 25.76 to $ 28.15 on various dates in 2010 .\nthese awards vest annually over three years .\nthe company also granted 0.9 million performance restricted stock units during 2010 .\nthese performance restricted stock units have been granted at the maximum achievable level and the number of shares that can vest is based on specific revenue and ebitda goals for periods from 2010 through 2012 .\nduring 2009 , we granted 0.5 million shares of restricted stock at a price of $ 22.55 that vest annually over 3 years .\non october 1 , 2009 , the company granted 0.4 million restricted stock units at a price of $ 24.85 per share that vested over six months .\non march 20 , 2008 , we granted 0.4 million shares of restricted stock at a price of $ 38.75 that were to vest quarterly over 2 years .\non july 2 , 2008 , 0.2 million of these shares were canceled and assumed by lps .\nthe remaining unvested restricted shares were converted by the conversion factor of 1.7952 .\nthese awards vested as of october 1 , 2009 , under the change in control provisions due to the metavante acquisition .\non october 27 , 2008 , we granted 0.8 million shares of restricted stock at a price of $ 14.35 that vest annually over 3 years .\nas of december 31 , 2010 and 2009 , we have approximately 2.2 million and 1.4 million unvested restricted shares remaining .\nas of december 31 , 2010 we also have 0.6 million of restricted stock units that have not vested .\nshare repurchase plans on october 25 , 2006 , our board of directors approved a plan authorizing repurchases of up to $ 200.0 million worth of our common stock ( the 201cold plan 201d ) .\non april 17 , 2008 , our board of directors approved a plan authorizing repurchases of up to an additional $ 250.0 million worth of our common stock ( the 201cnew plan 201d ) .\nunder the new plan we repurchased 5.8 million shares of our stock for $ 226.2 million , at an average price of $ 38.97 for the year ended december 31 , 2008 .\nduring the year ended december 31 , 2008 , we also repurchased an additional 0.2 million shares of our stock for $ 10.0 million at an average price of $ 40.56 under the old plan .\nduring 2007 , the company repurchased 1.6 million shares at an average price of $ 49.15 under the old plan .\non february 4 , 2010 our board of directors approved a plan authorizing repurchases of up to 15.0 million shares of our common stock in the open market , at prevailing market prices or in privately negotiated transactions , through january 31 , 2013 .\nwe repurchased 1.4 million shares of our common stock for $ 32.2 million , at an average price of $ 22.97 through march 31 , 2010 .\nno additional shares were repurchased under this plan during the year ended december 31 , 2010 .\napproximately 13.6 million shares of our common stock remain available to repurchase under this plan as of december 31 , 2010 .\non may 25 , 2010 , our board of directors authorized a leveraged recapitalization plan to repurchase up to $ 2.5 billion of our common stock at a price range of $ 29.00 2014 $ 31.00 per share of common stock through a modified 201cdutch auction 201d tender offer ( the 201ctender offer 201d ) .\nthe tender offer commenced on july 6 , 2010 and expired on august 3 , 2010 .\nthe tender offer was oversubscribed at $ 29.00 , resulting in the purchase of 86.2 million shares , including 6.4 million shares underlying previously unexercised stock options .\nthe repurchased shares were added to treasury stock .\nfidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 087000000 ***%%pcmsg|87 |00008|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "pre_text": "the weighted average fair value of options granted during 2010 , 2009 and 2008 was estimated to be $ 7.84 , $ 7.18 and $ 3.84 , respectively , using the black-scholes option pricing model with the assumptions below: .",
+          "report_id": "cik:1136893:2010",
+          "report_year": 2010,
+          "source_file": "pdf/FIS/2010/page_93.pdf",
+          "table_markdown": "|    |                                          | 2010             | 2009             | 2008             |\n|---:|:-----------------------------------------|:-----------------|:-----------------|:-----------------|\n|  0 | risk free interest rate                  | 1.1% ( 1.1 % )   | 2.3% ( 2.3 % )   | 2.8% ( 2.8 % )   |\n|  1 | volatility                               | 35.6% ( 35.6 % ) | 35.0% ( 35.0 % ) | 26.0% ( 26.0 % ) |\n|  2 | dividend yield                           | 0.7% ( 0.7 % )   | 1.0% ( 1.0 % )   | 1.0% ( 1.0 % )   |\n|  3 | weighted average expected life ( years ) | 4.4              | 5.0              | 5.3              |",
+          "text": "the weighted average fair value of options granted during 2010 , 2009 and 2008 was estimated to be $ 7.84 , $ 7.18 and $ 3.84 , respectively , using the black-scholes option pricing model with the assumptions below: ._|    |                                          | 2010             | 2009             | 2008             |\n|---:|:-----------------------------------------|:-----------------|:-----------------|:-----------------|\n|  0 | risk free interest rate                  | 1.1% ( 1.1 % )   | 2.3% ( 2.3 % )   | 2.8% ( 2.8 % )   |\n|  1 | volatility                               | 35.6% ( 35.6 % ) | 35.0% ( 35.0 % ) | 26.0% ( 26.0 % ) |\n|  2 | dividend yield                           | 0.7% ( 0.7 % )   | 1.0% ( 1.0 % )   | 1.0% ( 1.0 % )   |\n|  3 | weighted average expected life ( years ) | 4.4              | 5.0              | 5.3              |_at december 31 , 2010 and 2009 , the total unrecognized compensation cost related to non-vested stock awards is $ 129.3 million and $ 93.5 million , respectively , which is expected to be recognized in pre-tax income over a weighted average period of 1.7 years as of both year ends .\nthe company granted a total of 1.5 million restricted stock awards at prices ranging from $ 25.76 to $ 28.15 on various dates in 2010 .\nthese awards vest annually over three years .\nthe company also granted 0.9 million performance restricted stock units during 2010 .\nthese performance restricted stock units have been granted at the maximum achievable level and the number of shares that can vest is based on specific revenue and ebitda goals for periods from 2010 through 2012 .\nduring 2009 , we granted 0.5 million shares of restricted stock at a price of $ 22.55 that vest annually over 3 years .\non october 1 , 2009 , the company granted 0.4 million restricted stock units at a price of $ 24.85 per share that vested over six months .\non march 20 , 2008 , we granted 0.4 million shares of restricted stock at a price of $ 38.75 that were to vest quarterly over 2 years .\non july 2 , 2008 , 0.2 million of these shares were canceled and assumed by lps .\nthe remaining unvested restricted shares were converted by the conversion factor of 1.7952 .\nthese awards vested as of october 1 , 2009 , under the change in control provisions due to the metavante acquisition .\non october 27 , 2008 , we granted 0.8 million shares of restricted stock at a price of $ 14.35 that vest annually over 3 years .\nas of december 31 , 2010 and 2009 , we have approximately 2.2 million and 1.4 million unvested restricted shares remaining .\nas of december 31 , 2010 we also have 0.6 million of restricted stock units that have not vested .\nshare repurchase plans on october 25 , 2006 , our board of directors approved a plan authorizing repurchases of up to $ 200.0 million worth of our common stock ( the 201cold plan 201d ) .\non april 17 , 2008 , our board of directors approved a plan authorizing repurchases of up to an additional $ 250.0 million worth of our common stock ( the 201cnew plan 201d ) .\nunder the new plan we repurchased 5.8 million shares of our stock for $ 226.2 million , at an average price of $ 38.97 for the year ended december 31 , 2008 .\nduring the year ended december 31 , 2008 , we also repurchased an additional 0.2 million shares of our stock for $ 10.0 million at an average price of $ 40.56 under the old plan .\nduring 2007 , the company repurchased 1.6 million shares at an average price of $ 49.15 under the old plan .\non february 4 , 2010 our board of directors approved a plan authorizing repurchases of up to 15.0 million shares of our common stock in the open market , at prevailing market prices or in privately negotiated transactions , through january 31 , 2013 .\nwe repurchased 1.4 million shares of our common stock for $ 32.2 million , at an average price of $ 22.97 through march 31 , 2010 .\nno additional shares were repurchased under this plan during the year ended december 31 , 2010 .\napproximately 13.6 million shares of our common stock remain available to repurchase under this plan as of december 31 , 2010 .\non may 25 , 2010 , our board of directors authorized a leveraged recapitalization plan to repurchase up to $ 2.5 billion of our common stock at a price range of $ 29.00 2014 $ 31.00 per share of common stock through a modified 201cdutch auction 201d tender offer ( the 201ctender offer 201d ) .\nthe tender offer commenced on july 6 , 2010 and expired on august 3 , 2010 .\nthe tender offer was oversubscribed at $ 29.00 , resulting in the purchase of 86.2 million shares , including 6.4 million shares underlying previously unexercised stock options .\nthe repurchased shares were added to treasury stock .\nfidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 087000000 ***%%pcmsg|87 |00008|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 1.4217286
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "company_name": "Metavante",
+      "year": 2010,
+      "query": "Metavante stock awards total purchase price"
+    },
+    "response": {
+      "status": "ok",
+      "code": "results",
+      "corpus_version": "finqa-301676584646",
+      "match_method": "broad_query",
+      "message": "Neither issuer name nor company_synonyms matched. Searched company name plus query across all issuers and report years; the supplied company and year filters were relaxed. Check each result's actual issuer and year.",
+      "requested_company": "Metavante",
+      "requested_year": 2010,
+      "applied_filters": {},
+      "ambiguous": false,
+      "candidates": [],
+      "resolved_company": null,
+      "year": null,
+      "total_hits": 2358,
+      "results": [
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_test_ctx_77",
+          "page_number": 70,
+          "post_text": "we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "pre_text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : .",
+          "report_id": "cik:1136893:2010",
+          "report_year": 2010,
+          "source_file": "pdf/FIS/2010/page_70.pdf",
+          "table_markdown": "|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |",
+          "text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : ._|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |_we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 44.92288
+        },
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_train_ctx_28",
+          "page_number": 30,
+          "post_text": "s&p supercap data processing & outsourced 100.00 68.26 99.41 97.33 118.68 151.90 item 6 .\nselected financial data .\nthe selected financial data set forth below constitutes historical financial data of fis and should be read in conjunction with item 7 , management 2019s discussion and analysis of financial condition and results of operations , and item 8 , financial statements and supplementary data , included elsewhere in this report .\non october 1 , 2009 , we completed the acquisition of metavante technologies , inc .\n( \"metavante\" ) .\nthe results of operations and financial position of metavante are included in the consolidated financial statements since the date of acquisition .\non july 2 , 2008 , we completed the spin-off of lender processing services , inc. , which was a former wholly-owned subsidiary ( \"lps\" ) .\nfor accounting purposes , the results of lps are presented as discontinued operations .\naccordingly , all prior periods have been restated to present the results of fis on a stand alone basis and include the results of lps up to july 2 , 2008 , as discontinued operations. .",
+          "pre_text": ".",
+          "report_id": "cik:1136893:2012",
+          "report_year": 2012,
+          "source_file": "pdf/FIS/2012/page_30.pdf",
+          "table_markdown": "|    |                                                    |   12/07 |   12/08 |   12/09 |   12/10 |   12/11 |   12/12 |\n|---:|:---------------------------------------------------|--------:|--------:|--------:|--------:|--------:|--------:|\n|  0 | fidelity national information services inc .       |     100 |   70.08 |  101.93 |  120.01 |  117.34 |  157.38 |\n|  1 | s&p 500                                            |     100 |   63    |   79.67 |   91.67 |   93.61 |  108.59 |\n|  2 | s&p supercap data processing & outsourced services |     100 |   68.26 |   99.41 |   97.33 |  118.68 |  151.9  |",
+          "text": "._|    |                                                    |   12/07 |   12/08 |   12/09 |   12/10 |   12/11 |   12/12 |\n|---:|:---------------------------------------------------|--------:|--------:|--------:|--------:|--------:|--------:|\n|  0 | fidelity national information services inc .       |     100 |   70.08 |  101.93 |  120.01 |  117.34 |  157.38 |\n|  1 | s&p 500                                            |     100 |   63    |   79.67 |   91.67 |   93.61 |  108.59 |\n|  2 | s&p supercap data processing & outsourced services |     100 |   68.26 |   99.41 |   97.33 |  118.68 |  151.9  |_s&p supercap data processing & outsourced 100.00 68.26 99.41 97.33 118.68 151.90 item 6 .\nselected financial data .\nthe selected financial data set forth below constitutes historical financial data of fis and should be read in conjunction with item 7 , management 2019s discussion and analysis of financial condition and results of operations , and item 8 , financial statements and supplementary data , included elsewhere in this report .\non october 1 , 2009 , we completed the acquisition of metavante technologies , inc .\n( \"metavante\" ) .\nthe results of operations and financial position of metavante are included in the consolidated financial statements since the date of acquisition .\non july 2 , 2008 , we completed the spin-off of lender processing services , inc. , which was a former wholly-owned subsidiary ( \"lps\" ) .\nfor accounting purposes , the results of lps are presented as discontinued operations .\naccordingly , all prior periods have been restated to present the results of fis on a stand alone basis and include the results of lps up to july 2 , 2008 , as discontinued operations. .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 24.506065
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "company_name": "Metavante",
+      "year": 2018,
+      "query": "Metavante stock awards total purchase price"
+    },
+    "response": {
+      "status": "ok",
+      "code": "results",
+      "corpus_version": "finqa-301676584646",
+      "match_method": "broad_query",
+      "message": "Neither issuer name nor company_synonyms matched. Searched company name plus query across all issuers and report years; the supplied company and year filters were relaxed. Check each result's actual issuer and year.",
+      "requested_company": "Metavante",
+      "requested_year": 2018,
+      "applied_filters": {},
+      "ambiguous": false,
+      "candidates": [],
+      "resolved_company": null,
+      "year": null,
+      "total_hits": 2358,
+      "results": [
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_test_ctx_77",
+          "page_number": 70,
+          "post_text": "we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "pre_text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : .",
+          "report_id": "cik:1136893:2010",
+          "report_year": 2010,
+          "source_file": "pdf/FIS/2010/page_70.pdf",
+          "table_markdown": "|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |",
+          "text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : ._|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |_we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 44.92288
+        },
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_train_ctx_28",
+          "page_number": 30,
+          "post_text": "s&p supercap data processing & outsourced 100.00 68.26 99.41 97.33 118.68 151.90 item 6 .\nselected financial data .\nthe selected financial data set forth below constitutes historical financial data of fis and should be read in conjunction with item 7 , management 2019s discussion and analysis of financial condition and results of operations , and item 8 , financial statements and supplementary data , included elsewhere in this report .\non october 1 , 2009 , we completed the acquisition of metavante technologies , inc .\n( \"metavante\" ) .\nthe results of operations and financial position of metavante are included in the consolidated financial statements since the date of acquisition .\non july 2 , 2008 , we completed the spin-off of lender processing services , inc. , which was a former wholly-owned subsidiary ( \"lps\" ) .\nfor accounting purposes , the results of lps are presented as discontinued operations .\naccordingly , all prior periods have been restated to present the results of fis on a stand alone basis and include the results of lps up to july 2 , 2008 , as discontinued operations. .",
+          "pre_text": ".",
+          "report_id": "cik:1136893:2012",
+          "report_year": 2012,
+          "source_file": "pdf/FIS/2012/page_30.pdf",
+          "table_markdown": "|    |                                                    |   12/07 |   12/08 |   12/09 |   12/10 |   12/11 |   12/12 |\n|---:|:---------------------------------------------------|--------:|--------:|--------:|--------:|--------:|--------:|\n|  0 | fidelity national information services inc .       |     100 |   70.08 |  101.93 |  120.01 |  117.34 |  157.38 |\n|  1 | s&p 500                                            |     100 |   63    |   79.67 |   91.67 |   93.61 |  108.59 |\n|  2 | s&p supercap data processing & outsourced services |     100 |   68.26 |   99.41 |   97.33 |  118.68 |  151.9  |",
+          "text": "._|    |                                                    |   12/07 |   12/08 |   12/09 |   12/10 |   12/11 |   12/12 |\n|---:|:---------------------------------------------------|--------:|--------:|--------:|--------:|--------:|--------:|\n|  0 | fidelity national information services inc .       |     100 |   70.08 |  101.93 |  120.01 |  117.34 |  157.38 |\n|  1 | s&p 500                                            |     100 |   63    |   79.67 |   91.67 |   93.61 |  108.59 |\n|  2 | s&p supercap data processing & outsourced services |     100 |   68.26 |   99.41 |   97.33 |  118.68 |  151.9  |_s&p supercap data processing & outsourced 100.00 68.26 99.41 97.33 118.68 151.90 item 6 .\nselected financial data .\nthe selected financial data set forth below constitutes historical financial data of fis and should be read in conjunction with item 7 , management 2019s discussion and analysis of financial condition and results of operations , and item 8 , financial statements and supplementary data , included elsewhere in this report .\non october 1 , 2009 , we completed the acquisition of metavante technologies , inc .\n( \"metavante\" ) .\nthe results of operations and financial position of metavante are included in the consolidated financial statements since the date of acquisition .\non july 2 , 2008 , we completed the spin-off of lender processing services , inc. , which was a former wholly-owned subsidiary ( \"lps\" ) .\nfor accounting purposes , the results of lps are presented as discontinued operations .\naccordingly , all prior periods have been restated to present the results of fis on a stand alone basis and include the results of lps up to july 2 , 2008 , as discontinued operations. .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 24.506065
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "company_name": "ZZZZ_UNLISTED",
+      "year": 2018,
+      "query": "Metavante stock awards total purchase price"
+    },
+    "response": {
+      "status": "ok",
+      "code": "results",
+      "corpus_version": "finqa-301676584646",
+      "match_method": "broad_query",
+      "message": "Neither issuer name nor company_synonyms matched. Searched company name plus query across all issuers and report years; the supplied company and year filters were relaxed. Check each result's actual issuer and year.",
+      "requested_company": "ZZZZ_UNLISTED",
+      "requested_year": 2018,
+      "applied_filters": {},
+      "ambiguous": false,
+      "candidates": [],
+      "resolved_company": null,
+      "year": null,
+      "total_hits": 2358,
+      "results": [
+        {
+          "company_cik": 1136893,
+          "company_id": "cik:1136893",
+          "company_name": "Fidelity National Information Services",
+          "context_id": "finqa_test_ctx_77",
+          "page_number": 70,
+          "post_text": "we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "pre_text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : .",
+          "report_id": "cik:1136893:2010",
+          "report_year": 2010,
+          "source_file": "pdf/FIS/2010/page_70.pdf",
+          "table_markdown": "|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |",
+          "text": "chairman and a director of the board of fis as well as the chairman of the board of lps .\neffective march 1 , 2010 , mr .\nkennedy and the company mutually agreed that he would no longer serve as an executive officer and director of the company and its subsidiaries .\nthe revenue and expense items with lps are , therefore , summarized above as related party activity through march 1 , 2010 .\nwe believe the amounts earned from or charged by us under each of the foregoing arrangements are fair and reasonable .\nwe believe our service arrangements are priced within the range of prices we offer to third parties .\nhowever , the amounts we earned or that were charged under these arrangements were not negotiated at arm 2019s- length , and may not represent the terms that we might have obtained from an unrelated third party .\ndiscontinued operations 2014 related party activity through july 2 , 2008 , lps provided a number of services to fnf that are now presented as discontinued operations .\nthese services included title agency services , software development services , real estate related services and other cost sharing services .\nthese activities are included within net earnings from discontinued operations .\n( 5 ) acquisitions the results of operations and financial position of the entities acquired during the years ended december 31 , 2010 , 2009 and 2008 are included in the consolidated financial statements from and after the date of acquisition .\nthere were no significant acquisitions in 2010 and 2008 .\nmetavante on october 1 , 2009 , we completed the acquisition of metavante ( the 201cmetavante acquisition 201d ) .\nmetavante expanded the scale of fis core processing and payment capabilities , added trust and wealth management processing services and added to our eft capabilities with the nyce network .\nmetavante also added significant scale to treasury and cash management offerings and provided an entry into the healthcare and government payments markets .\npursuant to the agreement and plan of merger dated as of march 31 , 2009 , metavante became a wholly- owned subsidiary of fis .\neach issued and outstanding share of metavante common stock , par value $ 0.01 per share , was converted into 1.35 shares of fis common stock .\nin addition , outstanding metavante stock options and other stock-based awards were converted into comparable fis stock options and other stock-based awards at the same conversion ratio .\nthe total purchase price was as follows ( in millions ) : ._|    | value of metavante common stock   | $ 4066.4   |\n|---:|:----------------------------------|:-----------|\n|  0 | value of metavante stock awards   | 121.4      |\n|  1 | total purchase price              | $ 4187.8   |_we recorded a preliminary allocation of the purchase price to metavante tangible and identifiable intangible assets acquired and liabilities assumed based on their estimated fair values as of october 1 , 2009 .\ngoodwill was fidelity national information services , inc .\nand subsidiaries notes to consolidated financial statements 2014 ( continued ) %%transmsg*** transmitting job : g26369 pcn : 064000000 ***%%pcmsg|64 |00007|yes|no|03/28/2011 17:32|0|0|page is valid , no graphics -- color : n| .",
+          "ticker": "FIS",
+          "company_synonyms": [
+            "alltel information services",
+            "fidelity national information services , inc .",
+            "fidelity national information services inc",
+            "fnf 2019s",
+            "grace & digital information technology co. , ltd .",
+            "irs",
+            "k-12 school",
+            "ps&e",
+            "s&p",
+            "technologies , inc .",
+            "the securities and exchange commission",
+            "treasury",
+            "united states",
+            "|00007|yes|no|03/28/2011"
+          ],
+          "score": 32.20074
+        },
+        {
+          "company_cik": 883241,
+          "company_id": "cik:883241",
+          "company_name": "Synopsys",
+          "context_id": "finqa_train_ctx_1675",
+          "page_number": 59,
+          "post_text": "acquisition related costs consist primarily of professional services , severance and employee related costs and facilities closure costs of which $ 6.8 million have been paid as of october 31 , 2009 .\nfair value of stock awards assumed .\nan aggregate of 4.7 million shares of synplicity stock options and restricted stock units were exchanged for synopsys stock options and restricted stock units at an exchange ratio of 0.3392 per share .\nthe fair value of stock options assumed was determined using a black-scholes valuation model .\nthe fair value of stock awards vested or earned of $ 4.2 million was included as part of the purchase price .\nthe fair value of unvested awards of $ 5.0 million will be recorded as operating expense over the remaining service periods on a straight-line basis .\npurchase price allocation .\nthe company allocated $ 80.0 million of the purchase price to identifiable intangible assets to be amortized over two to seven years .\nin-process research and development expense related to these acquisitions was $ 4.8 million .\ngoodwill , representing the excess of the purchase price over the fair value of tangible and identifiable intangible assets acquired , was $ 120.3 million and will not be amortized .\ngoodwill primarily resulted from the company 2019s expectation of cost synergies and sales growth from the integration of synplicity 2019s technology with the company 2019s technology and operations to provide an expansion of products and market reach .\nfiscal 2007 acquisitions during fiscal year 2007 , the company completed certain purchase acquisitions for cash .\nthe company allocated the total purchase considerations of $ 54.8 million ( which included acquisition related costs of $ 1.4 million ) to the assets and liabilities acquired , including identifiable intangible assets , based on their respective fair values at the acquisition dates , resulting in aggregate goodwill of $ 36.6 million .\nacquired identifiable intangible assets of $ 14.3 million are being amortized over two to nine years .\nin-process research and development expense related to these acquisitions was $ 3.2 million. .",
+          "pre_text": "synopsys , inc .\nnotes to consolidated financial statements 2014 ( continued ) and other electronic applications markets .\nthe company believes the acquisition will expand its technology portfolio , channel reach and total addressable market by adding complementary products and expertise for fpga solutions and rapid asic prototyping .\npurchase price .\nsynopsys paid $ 8.00 per share for all outstanding shares including certain vested options of synplicity for an aggregate cash payment of $ 223.3 million .\nadditionally , synopsys assumed certain employee stock options and restricted stock units , collectively called 201cstock awards . 201d the total purchase consideration consisted of: .",
+          "report_id": "cik:883241:2009",
+          "report_year": 2009,
+          "source_file": "pdf/SNPS/2009/page_59.pdf",
+          "table_markdown": "|    |                                                     | ( in thousands )   |\n|---:|:----------------------------------------------------|:-------------------|\n|  0 | cash paid net of cash acquired                      | $ 180618           |\n|  1 | fair value of assumed vested or earned stock awards | 4169               |\n|  2 | acquisition related costs                           | 8016               |\n|  3 | total purchase price consideration                  | $ 192803           |",
+          "text": "synopsys , inc .\nnotes to consolidated financial statements 2014 ( continued ) and other electronic applications markets .\nthe company believes the acquisition will expand its technology portfolio , channel reach and total addressable market by adding complementary products and expertise for fpga solutions and rapid asic prototyping .\npurchase price .\nsynopsys paid $ 8.00 per share for all outstanding shares including certain vested options of synplicity for an aggregate cash payment of $ 223.3 million .\nadditionally , synopsys assumed certain employee stock options and restricted stock units , collectively called 201cstock awards . 201d the total purchase consideration consisted of: ._|    |                                                     | ( in thousands )   |\n|---:|:----------------------------------------------------|:-------------------|\n|  0 | cash paid net of cash acquired                      | $ 180618           |\n|  1 | fair value of assumed vested or earned stock awards | 4169               |\n|  2 | acquisition related costs                           | 8016               |\n|  3 | total purchase price consideration                  | $ 192803           |_acquisition related costs consist primarily of professional services , severance and employee related costs and facilities closure costs of which $ 6.8 million have been paid as of october 31 , 2009 .\nfair value of stock awards assumed .\nan aggregate of 4.7 million shares of synplicity stock options and restricted stock units were exchanged for synopsys stock options and restricted stock units at an exchange ratio of 0.3392 per share .\nthe fair value of stock options assumed was determined using a black-scholes valuation model .\nthe fair value of stock awards vested or earned of $ 4.2 million was included as part of the purchase price .\nthe fair value of unvested awards of $ 5.0 million will be recorded as operating expense over the remaining service periods on a straight-line basis .\npurchase price allocation .\nthe company allocated $ 80.0 million of the purchase price to identifiable intangible assets to be amortized over two to seven years .\nin-process research and development expense related to these acquisitions was $ 4.8 million .\ngoodwill , representing the excess of the purchase price over the fair value of tangible and identifiable intangible assets acquired , was $ 120.3 million and will not be amortized .\ngoodwill primarily resulted from the company 2019s expectation of cost synergies and sales growth from the integration of synplicity 2019s technology with the company 2019s technology and operations to provide an expansion of products and market reach .\nfiscal 2007 acquisitions during fiscal year 2007 , the company completed certain purchase acquisitions for cash .\nthe company allocated the total purchase considerations of $ 54.8 million ( which included acquisition related costs of $ 1.4 million ) to the assets and liabilities acquired , including identifiable intangible assets , based on their respective fair values at the acquisition dates , resulting in aggregate goodwill of $ 36.6 million .\nacquired identifiable intangible assets of $ 14.3 million are being amortized over two to nine years .\nin-process research and development expense related to these acquisitions was $ 3.2 million. .",
+          "ticker": "SNPS",
+          "company_synonyms": [
+            "acquisitions nassda corporation",
+            "ada",
+            "automation , inc .",
+            "components , inc.",
+            "ikos systems , inc .",
+            "irs",
+            "nassda",
+            "nol",
+            "stanza , inc .",
+            "synopsys , inc ."
+          ],
+          "score": 16.143349
+        }
+      ]
+    }
+  }
+]

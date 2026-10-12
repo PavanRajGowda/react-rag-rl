@@ -11,16 +11,12 @@ from elasticsearch import AsyncElasticsearch
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from finance_rag.retrieval import retrieve
 from finance_rag.search import (
     SEARCH_SCHEMA_VERSION,
-    Registry,
     SearchError,
     SearchRequest,
-    company_candidates,
-    company_name_query,
     index_name,
-    load_docs,
-    query_body,
 )
 
 
@@ -33,7 +29,6 @@ def create_app(directory=None, es_client=None):
         if not token:
             raise RuntimeError("SEARCH_API_TOKEN must be configured")
         app.state.token = token
-        app.state.registry = Registry(load_docs(directory))
         app.state.manifest = json.loads((directory / "manifest.json").read_text())
         app.state.index = index_name(app.state.manifest)
         digest = hashlib.sha256((directory / "contexts.jsonl").read_bytes()).hexdigest()
@@ -88,47 +83,18 @@ def create_app(directory=None, es_client=None):
 
     @app.post("/v1/search", dependencies=[Depends(auth)])
     async def search(request: SearchRequest):
-        try:
+        async def execute(**body):
             async with app.state.limit:
-                candidates = (
-                    company_candidates(
-                        await app.state.es.search(
-                            index=app.state.index,
-                            **company_name_query(
-                                request.company_name, len(app.state.registry.companies)
-                            ),
-                        )
-                    )
-                    if request.company_name
-                    else None
-                )
-            company = app.state.registry.resolve(request, name_candidates=candidates)
+                return await app.state.es.search(index=app.state.index, **body)
+
+        try:
+            return await retrieve(
+                request, execute, app.state.manifest["corpus_version"]
+            )
         except SearchError as exc:
             raise HTTPException(exc.status, detail=exc.as_dict()) from exc
         except Exception as exc:
             raise HTTPException(503, detail={"code": "search_unavailable"}) from exc
-        try:
-            async with app.state.limit:
-                response = await app.state.es.search(
-                    index=app.state.index,
-                    **query_body(request, company),
-                )
-            if response.get("timed_out") or response.get("_shards", {}).get(
-                "failed", 0
-            ):
-                raise RuntimeError("Incomplete search response")
-        except Exception as exc:
-            raise HTTPException(503, detail={"code": "search_unavailable"}) from exc
-        return {
-            "corpus_version": app.state.manifest["corpus_version"],
-            "resolved_company": company,
-            "year": request.year,
-            "total_hits": response["hits"]["total"]["value"],
-            "results": [
-                hit["_source"] | {"score": hit["_score"]}
-                for hit in response["hits"]["hits"]
-            ],
-        }
 
     return app
 

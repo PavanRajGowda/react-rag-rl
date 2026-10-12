@@ -91,6 +91,21 @@ def format_information(result):
             if docs
             else "No matching contexts. Reformulate the search if necessary."
         )
+        if result.get("message"):
+            metadata = {
+                key: result[key]
+                for key in (
+                    "match_method",
+                    "message",
+                    "requested_company",
+                    "requested_year",
+                    "applied_filters",
+                    "ambiguous",
+                    "candidates",
+                )
+                if key in result
+            }
+            body = json.dumps(metadata, ensure_ascii=False) + "\n\n" + body
     else:
         raise RuntimeError("Unrecognized search-service response")
     return "<information>\n" + escape(body, quote=False) + "\n</information>"

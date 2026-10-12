@@ -18,6 +18,9 @@ image = (
     .add_local_python_source("finance_rag")
     .add_local_file(root / "data/finqa/contexts.jsonl", "/corpus/contexts.jsonl")
     .add_local_file(root / "data/finqa/manifest.json", "/corpus/manifest.json")
+    .add_local_file(
+        root / "data/finqa/organizations.json", "/corpus/organizations.json"
+    )
 )
 app = modal.App("finance-rag-search")
 
@@ -84,7 +87,81 @@ def main(
     split: str = "dev",
     verify_deployed: bool = False,
     verify_companies: bool = False,
+    verify_resolution: bool = False,
 ):
+    if verify_resolution:
+        service = SearchService()
+        requests = [
+            {"company_name": "Apple", "year": 2002, "query": "net sales"},
+            {
+                "company_name": "Alltel Information Services",
+                "year": 2010,
+                "query": "acquisition",
+            },
+            {
+                "company_name": "Metavante",
+                "year": 2010,
+                "query": "Metavante stock awards total purchase price",
+            },
+            {
+                "company_name": "Metavante",
+                "year": 2018,
+                "query": "Metavante stock awards total purchase price",
+            },
+            {
+                "company_name": "ZZZZ_UNLISTED",
+                "year": 2018,
+                "query": "Metavante stock awards total purchase price",
+            },
+        ]
+        checks = []
+        for request in requests:
+            result = service.search.remote(request)
+            if result.get("status") == "ok":
+                if not result["results"] or len(result["results"]) > 2:
+                    raise RuntimeError(f"Unexpected retrieval: {result}")
+                if result["match_method"] != "broad_query" and any(
+                    doc["report_year"] != request["year"] for doc in result["results"]
+                ):
+                    raise RuntimeError("Report year filter was not respected")
+            elif result.get("code") != "report_year_unavailable":
+                raise RuntimeError(f"Unexpected error: {result}")
+            checks.append({"request": request, "response": result})
+        if (
+            checks[0]["response"].get("match_method") != "company_name"
+            or checks[1]["response"].get("match_method") != "company_synonyms"
+            or checks[-1]["response"].get("match_method") != "broad_query"
+        ):
+            raise RuntimeError("Resolution precedence or broad fallback failed")
+        for check in checks:
+            if (
+                check["request"]["company_name"] == "Metavante"
+                and check["response"].get("status") == "ok"
+                and not any(
+                    doc["context_id"] == "finqa_test_ctx_77"
+                    for doc in check["response"]["results"]
+                )
+            ):
+                raise RuntimeError("Metavante acquisition table was not retrieved")
+        (root / "reports/elasticsearch-resolution-smoke.json").write_text(
+            json.dumps(checks, indent=2), encoding="utf-8"
+        )
+        print(
+            json.dumps(
+                [
+                    {
+                        "request": x["request"],
+                        "status": x["response"]["status"],
+                        "match_method": x["response"].get("match_method"),
+                        "code": x["response"].get("code"),
+                        "results": len(x["response"].get("results", [])),
+                    }
+                    for x in checks
+                ],
+                indent=2,
+            )
+        )
+        return
     if verify_companies:
         service = SearchService()
         request = {"company_name": "apple", "year": 2002, "query": "net sales"}
@@ -159,9 +236,9 @@ def main(
 
     original = {x["context_id"]: x for x in load_docs(root / "data/finqa")}
     for hit in result["results"]:
-        if {k: v for k, v in hit.items() if k != "score"} != original[
-            hit["context_id"]
-        ]:
+        if {
+            k: v for k, v in hit.items() if k not in ("score", "company_synonyms")
+        } != original[hit["context_id"]]:
             raise RuntimeError("Retrieved context changed from source corpus")
         if hit["ticker"] != "AAPL" or hit["report_year"] != 2002:
             raise RuntimeError("Metadata filter failed")

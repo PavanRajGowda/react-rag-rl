@@ -1,5 +1,6 @@
 """An isolated Elasticsearch process and index per Modal container."""
 
+import asyncio
 import hashlib
 import json
 import os
@@ -13,14 +14,8 @@ from elasticsearch import Elasticsearch
 from pydantic import ValidationError
 
 from finance_rag.index import client, index_corpus
-from finance_rag.search import (
-    Registry,
-    SearchError,
-    SearchRequest,
-    index_name,
-    load_docs,
-    query_body,
-)
+from finance_rag.retrieval import retrieve
+from finance_rag.search import SearchError, SearchRequest, index_name
 
 
 class EmbeddedSearch:
@@ -39,7 +34,6 @@ class EmbeddedSearch:
         ).hexdigest()
         if digest != self.manifest["sha256"]:
             raise RuntimeError("Corpus does not match manifest")
-        self.registry = Registry(load_docs(self.directory))
         self.workspace = tempfile.TemporaryDirectory(prefix="finqa-es-")
         runtime = Path(self.workspace.name)
         os.chown(runtime, 1000, 1000)
@@ -121,28 +115,17 @@ class EmbeddedSearch:
     def search(self, payload):
         try:
             request = SearchRequest.model_validate(payload)
-            company = self.registry.resolve(
-                request, es=self.es, index=index_name(self.manifest)
+
+            async def search(**body):
+                return self.es.search(index=index_name(self.manifest), **body)
+
+            return asyncio.run(
+                retrieve(request, search, self.manifest["corpus_version"])
             )
         except ValidationError as exc:
             return {"status": "error", "code": "invalid_request", "message": str(exc)}
         except SearchError as exc:
             return {"status": "error"} | exc.as_dict()
-        response = self.es.search(
-            index=index_name(self.manifest), **query_body(request, company)
-        )
-        if response.get("timed_out") or response.get("_shards", {}).get("failed", 0):
-            raise RuntimeError("Incomplete Elasticsearch response")
-        return {
-            "status": "ok",
-            "corpus_version": self.manifest["corpus_version"],
-            "resolved_company": company,
-            "year": request.year,
-            "total_hits": response["hits"]["total"]["value"],
-            "results": [
-                x["_source"] | {"score": x["_score"]} for x in response["hits"]["hits"]
-            ],
-        }
 
     def stop(self):
         if self.es is not None:

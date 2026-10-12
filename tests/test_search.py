@@ -15,7 +15,7 @@ from finance_rag.search import (
     index_name,
     query_body,
 )
-from tests.helpers import sample
+from tests.helpers import identity_response, sample
 
 
 @pytest.mark.parametrize(
@@ -75,7 +75,7 @@ def test_api_auth_preservation_empty_and_failure(tmp_path, monkeypatch):
             get_mapping=AsyncMock(
                 return_value={
                     index_name(manifest): {
-                        "mappings": {"_meta": manifest | {"search_schema_version": 2}}
+                        "mappings": {"_meta": manifest | {"search_schema_version": 3}}
                     }
                 }
             )
@@ -93,10 +93,14 @@ def test_api_auth_preservation_empty_and_failure(tmp_path, monkeypatch):
         payload = {"ticker": "AAPL", "year": 2002, "query": "revenue"}
         assert api.post("/v1/search", json=payload).status_code == 401
         headers = {"Authorization": "Bearer test-token"}
+        es.search.side_effect = [identity_response(doc), es.search.return_value]
         response = api.post("/v1/search", json=payload, headers=headers)
         assert response.status_code == 200
         assert response.json()["results"][0]["text"] == sample()["context"]
-        es.search.return_value = {"hits": {"total": {"value": 0}, "hits": []}}
+        es.search.side_effect = [
+            identity_response(doc),
+            {"hits": {"total": {"value": 0}, "hits": []}},
+        ]
         assert (
             api.post("/v1/search", json=payload, headers=headers).json()["results"]
             == []

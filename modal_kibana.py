@@ -25,6 +25,9 @@ if modal.is_local():
         .add_local_python_source("finance_rag")
         .add_local_file(root / "data/finqa/contexts.jsonl", "/corpus/contexts.jsonl")
         .add_local_file(root / "data/finqa/manifest.json", "/corpus/manifest.json")
+        .add_local_file(
+            root / "data/finqa/organizations.json", "/corpus/organizations.json"
+        )
     )
     runtime_options = {
         "image": image,
