@@ -33,6 +33,7 @@ Older information may be removed; preserve useful numbers, units, financial
 periods, and source IDs in your generated reasoning when needed later.
 
 Put only your final numerical answer inside <answer>...</answer>.
+For an explicitly yes/no question, put only Yes or No inside the answer tags.
 Do not put currency symbols, percent symbols, units, or explanations in it.
 Do not invent values. Preserve signs and decimals. Express percentages in
 0–1 decimal form; divide a percentage value by 100 when needed. Do not multiply

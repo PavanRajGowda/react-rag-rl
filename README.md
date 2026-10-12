@@ -8,14 +8,15 @@ truncation. Questions and answers are exported separately and never indexed.
 For a file-by-file explanation and architecture guide, see the single
 [technical documentation README](<technical documentation/README.md>).
 
-## One-question multi-turn RAG baseline
+## Multi-turn RAG baseline and evaluation
 
 `baseline_agent/` contains a Search-R1-style inference controller for
 `Qwen/Qwen3.5-2B`. It loads one question from the pinned FinQA **test** split,
 without putting gold context, answers, company metadata, or year metadata in
 the model prompt. The model generates company/year/query tags and receives
-evidence from the existing private Modal search service. Numeric scoring is
-deliberately deferred.
+evidence from the existing private Modal search service. Scoring is performed
+locally using T2-RAGBench Number Match (epsilon 0.01). Yes/No predictions are
+converted to 1/0 before comparison with the numeric gold answers.
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
@@ -29,11 +30,12 @@ blocks. The model runs on a temporary **T4 in FP16**; its exact revision is
 recorded. Weights download on CPU into the `finance-rag-qwen-cache` Modal Volume
 before a GPU is allocated. This is inference only, not RL training.
 
-Results are saved in ignored `data/baseline/finqa_test_0-replace.json` and `.txt`.
+Results are saved under a unique ignored `data/baseline/experiments/<run-id>/`
+directory as per-question JSON and text files, `results.csv`, and `summary.json`.
 The JSON includes each actual model input, output, API response, timing, and
 token counts. The text file is a readable complete interaction transcript.
-Each completed run is archived under `data/baseline/runs/` with a unique run
-ID, preserving traces from earlier experiments.
+CSV and summary files are updated after each question, preserving partial runs.
+Historical one-example transcripts under `data/baseline/runs/` remain unchanged.
 Only the newest information block remains in the active prompt by default;
 generated reasoning/search history is retained. To use Search-R1's accumulating
 history, add `--context-mode append`. To select another single question later,
@@ -45,6 +47,33 @@ when finished to prevent new calls from waking it:
 ```powershell
 .\.tools\uv.exe run modal app stop --yes finance-rag-search
 ```
+
+To run the first five questions with a local dashboard:
+
+```powershell
+.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --dashboard
+.\.tools\uv.exe run --group observability tensorboard --logdir data/baseline/experiments --host 127.0.0.1 --port 6006
+```
+
+Open `http://127.0.0.1:6006`. Scalars show scores, latency, token counts, and
+search attempts. Text shows expected/predicted answers, generated reasoning,
+and tool requests. TensorBoard runs locally without a hosted account.
+The model loads once per batch; each question uses fresh history and seed
+`42 + example_index`. The CLI still defaults to one question.
+
+CSV includes `correct_answer`, `our_answer`, normalized numeric values, score,
+status, sign agreement, and timings. `inference_seconds` includes generation
+and tool waits, but excludes download, model loading and readiness warmup.
+Number Match intentionally ignores sign and power-of-ten differences; inspect
+raw answers and `sign_agrees` as well. Unsupported gold is explicitly unscored.
+
+To resume without rerunning saved questions:
+
+```powershell
+.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --dashboard --resume data/baseline/experiments/RUN_ID
+```
+
+Resume verifies model revision, selected questions and generation configuration.
 
 GPU dependencies have a separate `baseline_agent/pyproject.toml` and `uv.lock`;
 they are not installed in the local search environment. Regenerate the GPU
@@ -310,7 +339,7 @@ external index. Do not deploy it when using the private default above.
   first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
   in `reports/modal-deployed.json`; no GPU was required for this connectivity
   check. Actual GPU rollout throughput remains to be measured.
-- Twenty-six component tests and lint checks pass. Startup requires
+- Forty-four component tests and lint checks pass with observability dependencies. Startup requires
   `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
   Elasticsearch's entitlement protections remain enabled.
 - The default hosting target is Modal CPU containers; VM provisioning is no

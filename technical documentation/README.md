@@ -154,7 +154,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 26 test cases, including five parameterized validation
+The full suite collects 44 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -170,6 +170,8 @@ Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
 | `reports/kibana-verification.json` | Count, cookie login, unauthenticated 401, data view, and exact corpus-hash match | Confirms every indexed context matched the prepared corpus in the verified dashboard instance |
 | `reports/company-resolution-smoke.json` | Real Elasticsearch resolves `apple`, reports all matching American companies, and accepts a refined name/ticker | Verifies the analyzed company mapping and ambiguity feedback under search schema v2 |
 | `reports/baseline-smoke.json` | First test question, pinned model/config, five tool attempts, six generations, and ungraded answer | Operational T4 test after debugging this same example; does not measure accuracy or evaluate the test split |
+| `reports/baseline-first-five.csv` | First five test gold/predicted answers, scores, statuses and inference timings | Actual small evaluated batch, with failures preserved |
+| `reports/baseline-first-five.json` | Batch score, aggregate inference time, model/dataset provenance and telemetry-resume note | 1/5 Number Match; not full-test accuracy |
 
 Reports are historical artifacts. Starting a new deployment or changing
 configuration requires fresh verification; an old report does not check a
@@ -390,13 +392,15 @@ stops with `context_limit`; no table or context is silently truncated.
 Local outputs are ignored files under `data/baseline/`: a JSON record of the
 question, config, inputs, outputs, searches, timings and token counts, plus a
 readable text transcript. Completed runs are archived under
-`data/baseline/runs/` with unique run IDs. Numeric scoring, strict final-output grading, the
-user-provided Number Match metric, and full-test-set evaluation are deferred.
+`data/baseline/runs/` preserve earlier one-example runs. New evaluated runs use
+`data/baseline/experiments/<run-id>/`. Number Match is now implemented locally
+after inference; strict overall output-format grading and full-test evaluation
+remain deferred.
 Protocol parsing exists only to execute valid actions safely.
 
 Weights are cached in the `finance-rag-qwen-cache` Modal Volume. A CPU function
 downloads the snapshot before the GPU function starts. The T4 runs only for
-one selected question and stops when the temporary run completes. The separate
+the requested batch and stops when the temporary run completes. The separate
 deployed CPU search service should be stopped explicitly after experimentation
 if it should not be callable. This implementation is a debugging baseline,
 not a multi-hour training infrastructure or throughput benchmark.
@@ -427,3 +431,60 @@ model to retry with a suggested full name. This code change needs a search
 service redeployment; no new index mapping or corpus preparation is required.
 The saved baseline smoke transcript predates this change and retains its
 original formatting and retries; fewer future retries have not yet been measured.
+
+## 10. Numeric evaluation and local observability
+
+| File | Purpose |
+|---|---|
+| `baseline_agent/scoring.py` | Numeric extraction, Yes=1/No=0 normalization, Number Match, and separate sign agreement |
+| `baseline_agent/evaluation.py` | Local gold/prediction comparison; incremental CSV, summary, and per-question traces |
+| `baseline_agent/observability.py` | Optional TensorBoard scalar/text event files using the SDK directly, without local Torch or a hosted service |
+| `tests/test_numeric_validation.py` | Scale/sign tolerance, zero handling, Yes/No conversion, invalid predictions, extreme exponents, CSV separation, and TensorBoard event roundtrip |
+
+`data.load_evaluation_examples()` returns local evaluator pairs. Only the
+whitelisted question half crosses the GPU call boundary. Gold comes from
+`program_answer` and is added to local records after inference finishes.
+`run_examples()` loads Qwen once, then yields each independently seeded episode
+to the local evaluator. JSON/text/CSV are flushed question by question. Resume
+checks question/model/config identity before skipping already completed results.
+
+Number Match follows the supplied paper metric with epsilon 0.01: compare
+absolute values, accept two values below epsilon, otherwise normalize their
+ratio by the nearest power of ten and compare with one. Log differences and
+Decimal arithmetic avoid float overflow for extreme ratios. Consequently a
+wrong sign or a power-of-ten unit difference can pass; `sign_agrees`, original
+answers, and normalized values are retained. Missing/non-numeric predictions
+score zero. Yes and No, case-insensitively with optional terminal punctuation,
+normalize to 1 and 0 and use the same numeric scorer. No separate text-based
+boolean metric is used. Unsupported gold values are unscored and counted.
+
+Numeric extraction accepts a single signed decimal/scientific number, valid
+thousands separators, optional currency prefix, accounting parentheses, and
+percent suffix (converted to a decimal). It rejects arbitrary explanation
+text, multiple numbers, malformed commas, NaN/Infinity, and Python booleans.
+This avoids scoring an incidental year inside an invalid answer.
+
+`inference_seconds` is the GPU-side wall time for one episode, including model
+generation and search waits. Download, image build, readiness probe and model
+loading are excluded; model-load time is stored separately. Generation/search
+times and token/search counts are exported alongside it. Failed episodes stay
+in the CSV with their status and a zero prediction score; infrastructure failures
+are distinguishable from model failures. These evaluation scores are not RL
+rewards and should not be used blindly as training rewards.
+
+Optional `--dashboard` requires the root `observability` dependency group.
+TensorBoard presents score/latency/usage Scalars and per-example Text with
+expected/predicted answers, generated reasoning and search requests. It binds
+to localhost and sends no traces to a third party. Dashboard export failures
+are logged while CSV/JSON continue. The CSV fallback is always available.
+The dashboard is a local process; cloud CPU/GPU apps can be stopped while its
+saved results remain viewable. LangSmith, Langfuse and Phoenix are alternatives
+for richer hosted/self-hosted agent trace trees, requiring additional setup.
+
+The first-five evaluated batch completed with one Number Match success out of
+five. Case 0 hit the context budget; case 1 returned an incorrect table-derived
+value; case 2 exhausted turns on malformed search actions; case 3 exhausted
+searches on an unknown company; case 4 matched. Summed per-question inference
+time was 326.02 seconds. The initial telemetry import failure interrupted the
+batch after case 0; that result was preserved and cases 1–4 were resumed on
+one loaded T4 model. No predictions were changed or rerun to improve scores.

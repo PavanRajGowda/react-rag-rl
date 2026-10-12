@@ -1,0 +1,26 @@
+{
+  "examples_completed": 5,
+  "examples_scored": 5,
+  "answer_match_accuracy": 0.2,
+  "inference_seconds": 326.02037514100005,
+  "timing_definition": "Per-question agent loop on GPU, including generation and tool waits; excludes image build, model download/load and readiness warmup",
+  "number_match_ignores_sign_and_power_of_ten": true,
+  "model_id": "Qwen/Qwen3.5-2B",
+  "model_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+  "dataset_revision": "adf7fe1541ac37351ce1142544d8e3b43010ed92",
+  "test_indices": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "experiment": "f14c9e87ad08",
+  "note": "First result preserved after telemetry interruption; remaining four resumed. Small debug sample, not full-test accuracy.",
+  "metric": "T2-RAGBench Number Match",
+  "epsilon": 0.01,
+  "boolean_mapping": {
+    "Yes": 1,
+    "No": 0
+  }
+}
