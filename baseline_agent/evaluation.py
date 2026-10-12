@@ -2,8 +2,10 @@
 
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 
+from baseline_agent.batch import write_json
 from baseline_agent.retrieval_diagnostics import annotate_retrieval
 from baseline_agent.scoring import score_answer
 
@@ -39,16 +41,23 @@ CSV_FIELDS = [
 def record_result(result, gold, directory, gold_context_id=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    if gold_context_id is not None:
+    skipped = result["status"].startswith("skipped_")
+    if gold_context_id is not None and not skipped:
         result = annotate_retrieval(result, gold_context_id)
     scoring = score_answer(result["answer"], gold)
+    if skipped:
+        scoring = scoring | {
+            "score": None,
+            "number_match": None,
+            "match_type": "skipped",
+        }
     result = result | {
         "gold_answer": gold,
         "validation": scoring,
         "numeric_validation": "performed_locally",
     }
     path = directory / (result["question"]["id"] + ".json")
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, result)
     path.with_suffix(".txt").write_text(
         "Question: "
         + result["question"]["question"]
@@ -90,19 +99,35 @@ def record_result(result, gold, directory, gold_context_id=None):
         "gold_context_retrieved_ever": result.get("retrieval_validation", {}).get(
             "gold_context_retrieved_ever"
         ),
+        "_turn_diagnostics": [
+            {
+                "id": result["question"]["id"],
+                "turn": turn["turn"],
+                **turn["retrieval_diagnostic"],
+            }
+            for turn in result["turns"]
+            if "retrieval_diagnostic" in turn
+        ],
     }
     return row
 
 
 def export_rows(rows, directory):
     path = Path(directory) / "results.csv"
-    with path.open("w", encoding="utf-8-sig", newline="") as stream:
+    temporary = path.with_suffix(".csv.tmp")
+    with temporary.open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            {field: row.get(field) for field in CSV_FIELDS} for row in rows
+        )
+    temporary.replace(path)
     scored = [x["score"] for x in rows if x["score"] is not None]
     turn_rows = []
     for row in rows:
+        if "_turn_diagnostics" in row:
+            turn_rows.extend(dict(turn) for turn in row["_turn_diagnostics"])
+            continue
         trace = json.loads(Path(row["trace_file"]).read_text(encoding="utf-8"))
         for turn in trace["turns"]:
             if "retrieval_diagnostic" in turn:
@@ -116,17 +141,24 @@ def export_rows(rows, directory):
     if turn_rows:
         for row in turn_rows:
             row["retrieved_context_ids"] = json.dumps(row["retrieved_context_ids"])
-        with (Path(directory) / "turns.csv").open(
-            "w", encoding="utf-8-sig", newline=""
-        ) as stream:
+        turns_path = Path(directory) / "turns.csv"
+        temporary_turns = turns_path.with_suffix(".csv.tmp")
+        with temporary_turns.open("w", encoding="utf-8-sig", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=list(turn_rows[0]))
             writer.writeheader()
             writer.writerows(turn_rows)
+        temporary_turns.replace(turns_path)
     summary = {
         "metric": "T2-RAGBench Number Match",
         "epsilon": 0.01,
         "boolean_mapping": {"Yes": 1, "No": 0},
         "examples_completed": len(rows),
+        "examples_skipped": sum(row["status"].startswith("skipped_") for row in rows),
+        "infrastructure_errors": sum(
+            row["status"] in ("infrastructure_error", "postprocessing_error")
+            for row in rows
+        ),
+        "status_counts": dict(Counter(row["status"] for row in rows)),
         "examples_scored": len(scored),
         "answer_match_accuracy": sum(scored) / len(scored) if scored else None,
         "inference_seconds": sum(x["inference_seconds"] for x in rows),
@@ -140,7 +172,5 @@ def export_rows(rows, directory):
     ]
     if assessed:
         summary["gold_context_retrieval_rate"] = sum(assessed) / len(assessed)
-    (Path(directory) / "summary.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
+    write_json(Path(directory) / "summary.json", summary)
     return summary

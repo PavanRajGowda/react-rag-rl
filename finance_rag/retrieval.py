@@ -1,6 +1,6 @@
 """Elasticsearch-only resolution and retrieval shared by both interfaces."""
 
-from finance_rag.search import SearchError
+from finance_rag.search import SEARCH_SCHEMA_VERSION, SearchError
 
 
 def checked(response):
@@ -146,6 +146,7 @@ async def retrieve(request, search, corpus_version):
         "status": "ok",
         "code": "results" if results else "no_results",
         "corpus_version": corpus_version,
+        "search_schema_version": SEARCH_SCHEMA_VERSION,
         "match_method": method,
         "message": message
         + (" No matching evidence; reformulate the query." if not results else ""),

@@ -8,90 +8,104 @@ truncation. Questions and answers are exported separately and never indexed.
 For a file-by-file explanation and architecture guide, see the single
 [technical documentation README](<technical documentation/README.md>).
 
-## Multi-turn RAG baseline and evaluation
+## H100 pilot and full-test evaluation
 
-`baseline_agent/` contains a Search-R1-style inference controller for
-`Qwen/Qwen3.5-4B`. It loads one question from the pinned FinQA **test** split,
-without putting gold context, answers, company metadata, or year metadata in
-the model prompt. The model generates company/year/query tags and receives
-evidence from the existing private Modal search service. Scoring is performed
-locally using T2-RAGBench Number Match (epsilon 0.01). Yes/No predictions are
-converted to 1/0 before comparison with the numeric gold answers.
+The baseline uses pinned `Qwen/Qwen3.5-4B` in FP16 on one H100. The default
+pilot selects the first 50 test rows, with K=2 and replace history. Questions
+run sequentially in chunks of 10; each GPU invocation has a one-hour timeout.
+Weights download on CPU before GPU allocation. Full output traces are saved,
+but terminal reasoning streaming is off by default so the progress bar stays
+readable. Add `--verbose` for live generated text.
+
+Run the 50-example pilot from the project directory:
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
+.\.tools\uv.exe sync --frozen --group observability
 .\.tools\uv.exe run modal deploy modal_app.py
-.\.tools\uv.exe run modal run baseline_agent/modal_app.py
+try {
+    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 50 --dashboard
+} finally {
+    .\.tools\uv.exe run modal app stop --yes finance-rag-search
+}
 ```
 
-The default selects test index 0 and permits up to six searches. It prints
-the model's generated reasoning blocks, search arguments, and full information
-blocks. The model runs on a temporary **T4 in FP16**; its exact revision is
-recorded. Weights download on CPU into the `finance-rag-qwen-cache` Modal Volume
-before a GPU is allocated. This is inference only, not RL training.
+A terminal bar shows processed questions out of 50, elapsed time, ETA, accuracy
+and infrastructure-error count. Startup/download can take time before the first
+question completes. Do not redirect output if you want the live terminal bar.
+The experiment directory is printed before work starts. Results, raw responses,
+per-turn diagnostics and an atomic run manifest are saved after each example.
+Model outputs are never supplied gold answers or gold-context indicators.
 
-Results are saved under a unique ignored `data/baseline/experiments/<run-id>/`
-directory as per-question JSON and text files, `results.csv`, and `summary.json`.
-The JSON includes each actual model input, output, API response, timing, and
-token counts. The text file is a readable complete interaction transcript.
-CSV and summary files are updated after each question, preserving partial runs.
-Old baseline runs and their snapshots have been removed at user request.
-Only the newest information block remains in the active prompt by default;
-generated reasoning/search history is retained. To use Search-R1's accumulating
-history, add `--context-mode append`. To select another single question later,
-use `--example-index N`; this command never runs the full test set.
+Review `summary.json`: require 50 completed rows and zero infrastructure errors,
+and inspect `status_counts` for turn/context limits before expanding the run.
+Number Match ignores sign and powers of ten; passing scores do not guarantee
+percentage-format compliance. Inspect raw predictions as well.
 
-The GPU job stops when the run completes. Stop the deployed CPU service too
-when finished to prevent new calls from waking it:
+If interrupted, redeploy search and resume using the printed directory:
 
 ```powershell
-.\.tools\uv.exe run modal app stop --yes finance-rag-search
+$run = "data/baseline/experiments/YOUR_RUN_ID"
+.\.tools\uv.exe run modal deploy modal_app.py
+try {
+    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 50 --resume $run --dashboard
+} finally {
+    .\.tools\uv.exe run modal app stop --yes finance-rag-search
+}
 ```
 
-To run the first five questions with a local dashboard:
+Successful saved examples are skipped. To repeat saved infrastructure or local
+postprocessing failures, add `--retry-errors`. Incorrect numeric answers are
+never selectively rerun by this flag. Resume refuses changed model, GPU,
+instructions, generation configuration or dataset provenance. Keep the same
+`--example-index`, `--top-k`, `--context-mode` and `--max-searches` when resuming.
+
+After reviewing the pilot, extend that same experiment to the full test split:
 
 ```powershell
-.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --dashboard
+.\.tools\uv.exe run modal deploy modal_app.py
+try {
+    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --full-test --resume $run --dashboard
+} finally {
+    .\.tools\uv.exe run modal app stop --yes finance-rag-search
+}
+```
+
+This selects all 1,147 rows, records the known blank question as skipped, and
+continues with the remaining questions. The pilot's saved results are reused;
+there are 1,146 nonblank questions overall. `--batch-size` defaults to 10 and
+`--attempts` to 3. Each failed worker stream retries only unsaved questions. After
+bounded attempts, missing results are recorded as infrastructure errors. A
+whole chunk failing repeatedly opens a circuit breaker to avoid repeated GPU
+allocation for a global failure. Per-example exceptions are recorded and the
+worker proceeds; CUDA OOM ends its chunk so later questions can start a fresh
+model invocation. This cannot prevent process kills or disk failures; durable
+raw results/checkpoints support recovery, and failure states are not hidden.
+
+For a selection check without allocating any GPU or calling search:
+
+```powershell
+.\.tools\uv.exe run modal run baseline_agent/modal_app.py --num-examples 50 --dry-run
+.\.tools\uv.exe run modal run baseline_agent/modal_app.py --full-test --dry-run
+```
+
+TensorBoard remains local:
+
+```powershell
 .\.tools\uv.exe run --group observability tensorboard --logdir data/baseline/experiments --host 127.0.0.1 --port 6006
 ```
 
-Open `http://127.0.0.1:6006`. Scalars show scores, latency, token counts, and
-search attempts. Text shows expected/predicted answers, generated reasoning,
-and tool requests. TensorBoard runs locally without a hosted account.
-The model loads once per batch; each question uses fresh history and seed
-`42 + example_index`. The CLI still defaults to one question.
+Open `http://127.0.0.1:6006/#text`. Each generation shows its gold-context hit,
+whether that context was in its prompt, active evidence afterward and ever-hit
+status. These exact context-ID diagnostics are computed locally, not fed to the
+model; alternative valid evidence may exist. `turns.csv` provides the same data.
+In replace mode all previous model outputs and formatting feedback remain,
+while only the latest API information block is retained.
 
-CSV includes `correct_answer`, `our_answer`, normalized numeric values, score,
-status, sign agreement, and timings. `inference_seconds` includes generation
-and tool waits, but excludes download, model loading and readiness warmup.
-Number Match intentionally ignores sign and power-of-ten differences; inspect
-raw answers and `sign_agrees` as well. Unsupported gold is explicitly unscored.
-
-Retrieval diagnostics are calculated locally after inference using the test
-example's gold `context_id`; this identifier and the hit indicators never enter
-the model prompt or GPU payload. `turns.csv`, per-example JSON/text, and
-TensorBoard Text show whether each turn retrieved the gold context, whether it
-was present in that generation's evidence, and whether it was ever retrieved.
-Turns without a search have a blank hit field and `search_performed=False`.
-These are exact context-ID checks; other contexts may contain valid evidence.
-New experiments include these diagnostics automatically.
-
-To resume without rerunning saved questions:
-
-```powershell
-.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --dashboard --resume data/baseline/experiments/RUN_ID
-```
-
-Resume verifies model revision, selected questions and generation configuration.
-
-GPU dependencies have a separate `baseline_agent/pyproject.toml` and `uv.lock`;
-they are not installed in the local search environment. Regenerate the GPU
-export with:
-
-```powershell
-.\.tools\uv.exe lock --project baseline_agent
-.\.tools\uv.exe export --project baseline_agent --frozen --no-dev --no-emit-project --emit-index-url --output-file baseline_agent/requirements.gpu.lock.txt --quiet
-```
+GPU dependencies remain separately pinned in `baseline_agent/uv.lock` and
+`requirements.gpu.lock.txt`. The root uv environment handles orchestration,
+progress and scoring without local Torch. Old experiment snapshots were removed
+at user request; the existing five-question 4B result is a historical T4 run.
 
 ## Explore with Kibana
 

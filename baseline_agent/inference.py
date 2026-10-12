@@ -84,7 +84,9 @@ class QwenGenerator:
                 return action_complete(ASSISTANT_PREFILL + text)
 
         started = time.perf_counter()
-        print(ASSISTANT_PREFILL, end="", flush=True)
+        verbose = getattr(self, "verbose", True)
+        if verbose:
+            print(ASSISTANT_PREFILL, end="", flush=True)
         with torch.inference_mode():
             output = self.model.generate(
                 **encoded,
@@ -97,7 +99,9 @@ class QwenGenerator:
                 stopping_criteria=StoppingCriteriaList([StopAtAction()]),
                 streamer=TextStreamer(
                     self.tokenizer, skip_prompt=True, skip_special_tokens=True
-                ),
+                )
+                if verbose
+                else None,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
         generated = output[0, length:]

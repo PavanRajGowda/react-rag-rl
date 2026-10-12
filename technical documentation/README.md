@@ -146,7 +146,7 @@ corresponding commits. This organization preserves their test logic.
 | `tests/test_embedded.py` | Private Modal argument errors and rejection of partial Elasticsearch responses |
 | `tests/test_kibana.py` | Remote module import succeeds without reading developer-machine credential files |
 
-The full suite collects 63 test cases with observability dependencies, including five parameterized validation
+The full suite collects 74 test cases with observability dependencies, including five parameterized validation
 cases and seven baseline-controller tests documented in section 9. Most tests
 inject a fake client; they do not start Java, Docker,
 Kibana, or a GPU. Saved reports below provide evidence of previous live runs.
@@ -493,3 +493,50 @@ debug sample also uses the revised prompt/stopping, so it is not an isolated
 model-size comparison. Current snapshots are `reports/baseline-4b-first-five.csv`,
 `reports/baseline-4b-first-five.json` and `reports/baseline-4b-turns.csv`.
 The GPU run and search service were stopped after completion; TensorBoard is local.
+
+### H100 pilot and resumable full-set execution
+
+The current default GPU is H100, with pinned 4B revision
+`851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. The earlier five-question result
+remains a T4 measurement. The pilot defaults to 50 rows; `--full-test` selects
+all rows and records blank questions as skipped rather than aborting selection.
+Quiet generation keeps a tqdm progress bar readable; `--verbose` streams output.
+All prompt and tool traces are still retained in quiet mode.
+
+| File | Responsibility |
+|---|---|
+| `baseline_agent/batch.py` | Atomic JSON checkpoints, bounded call/stream retries, partial-stream deduplication, global-failure circuit breaker and error records |
+| `baseline_agent/runner.py` | Local progress bar, run manifest, provenance/behavior checks, resume/selection expansion, raw-result persistence, scoring and optional dashboard handling |
+| `tests/test_batch_runner.py` | Simulated stream interruption, per-example failure, retry exhaustion, disk failure, raw checkpoint recovery, failed-only retry, skip-only runs and pilot-to-full resume |
+
+The local entrypoint creates and prints an experiment directory before setup.
+`run.json` pins model, GPU, dataset, generation configuration, instruction/stop
+behavior hash and search schema. A corpus/schema readiness probe runs before
+model download or GPU allocation. Resume permits expanding a pilot selection,
+but rejects changed behavior/provenance or a smaller selection. Completed rows
+are not regenerated. `--retry-errors` repeats only infrastructure/postprocessing
+failures, never simply wrong answers.
+
+The H100 generator handles each example with try/except, retries idempotent
+search calls and records unexpected failures. It releases model resources at
+chunk end; CUDA OOM terminates the chunk after recording the failed question.
+Default chunks contain 10 questions with a one-hour invocation timeout. Broken
+streams are retried up to three attempts using only unsaved IDs; duplicate replay
+is ignored. Missing outcomes after exhaustion are explicit error records. A
+whole failed chunk triggers a circuit breaker, recording remaining failures
+without further GPU calls.
+
+Results and raw responses are written before the progress counter advances.
+JSON/CSV snapshots use temporary files and replacement. Per-turn diagnostics
+are kept compactly in memory so each checkpoint does not reread all prior large
+traces. Dashboard failures disable telemetry while CSV/JSON continue. Local
+scoring failures preserve raw output and produce postprocessing-error records.
+Persistence failures stop execution rather than falsely report unsaved results.
+`worker-errors.jsonl` and the run manifest retain failure/recovery details.
+Summary includes skipped/error counts and status counts; the manifest records
+invocation wall time including startup, while inference seconds exclude startup.
+
+Validation: 74 local tests pass. Real CLI dry runs selected 50 nonblank pilot
+rows and 1,147 full-test rows with one blank, without search/model/GPU calls.
+No H100 inference was launched as part of this preparation. Run commands,
+resume commands and try/finally CPU-service cleanup are in the root README.

@@ -296,6 +296,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "huggingface-hub" },
     { name = "modal" },
+    { name = "tqdm" },
     { name = "uvicorn" },
 ]
 
@@ -316,6 +317,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "huggingface-hub", specifier = ">=0.28,<2" },
     { name = "modal", specifier = ">=1,<2" },
+    { name = "tqdm", specifier = ">=4.67,<5" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
 

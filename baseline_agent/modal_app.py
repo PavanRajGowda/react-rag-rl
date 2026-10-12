@@ -1,14 +1,14 @@
-"""Download on CPU, then run a bounded test batch on a temporary T4."""
+"""Download on CPU, then run a bounded test batch on a temporary H100."""
 
-import json
 import logging
 import time
 from pathlib import Path
-from uuid import uuid4
 
 import modal
 
 MODEL_ID = "Qwen/Qwen3.5-4B"
+MODEL_REVISION = "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+GPU = "H100"
 logger = logging.getLogger(__name__)
 app = modal.App("finance-rag-baseline")
 cache = modal.Volume.from_name("finance-rag-qwen-cache", create_if_missing=True)
@@ -47,56 +47,70 @@ def download_model(revision):
 
 @app.function(
     image=image,
-    gpu="T4",
+    gpu=GPU,
     cpu=2,
     memory=16384,
     volumes={"/model-cache": cache},
-    timeout=1800,
+    timeout=3600,
     max_containers=1,
 )
-def run_examples(questions, config_values, revision):
+def run_examples(questions, config_values, revision, verbose=False):
+    import gc
+    from dataclasses import replace
+
+    import torch
+    from transformers import set_seed
+
     from baseline_agent.agent import AgentConfig, run_agent
+    from baseline_agent.batch import failure_result, retry_call
     from baseline_agent.inference import QwenGenerator
 
     service = modal.Cls.from_name("finance-rag-search", "SearchService")()
     config = AgentConfig(**config_values)
     loaded = time.perf_counter()
     generator = QwenGenerator(f"/model-cache/{revision}", config)
+    generator.verbose = verbose
     model_load_seconds = time.perf_counter() - loaded
-    from dataclasses import asdict, replace
-
-    from transformers import set_seed
-
-    for question in questions:
-        question_config = replace(config, seed=config.seed + question["example_index"])
-        generator.config = question_config
-        set_seed(question_config.seed)
-        print(f"\n=== {question['id']}: {question['question']} ===", flush=True)
-        started = time.perf_counter()
-        try:
-            result = run_agent(
-                question, generator, service.search.remote, question_config
-            )
-        except Exception as exc:
-            logger.exception("Baseline example %s failed", question["id"])
-            result = {
-                "question": question,
-                "config": asdict(question_config),
-                "status": "infrastructure_error",
-                "answer": None,
-                "turns": [],
-                "searches": [],
-                "events": [],
-                "error": f"{type(exc).__name__}: {exc}",
+    try:
+        for question in questions:
+            started = time.perf_counter()
+            restart = False
+            try:
+                question_config = replace(
+                    config, seed=config.seed + question["example_index"]
+                )
+                generator.config = question_config
+                set_seed(question_config.seed)
+                if verbose:
+                    print(
+                        f"\n=== {question['id']}: {question['question']} ===",
+                        flush=True,
+                    )
+                result = run_agent(
+                    question,
+                    generator,
+                    lambda payload: retry_call(lambda: service.search.remote(payload)),
+                    question_config,
+                    emit=print if verbose else lambda *args, **kwargs: None,
+                )
+            except Exception as exc:
+                logger.exception("Baseline example %s failed", question["id"])
+                result = failure_result(question, config, exc)
+                restart = isinstance(exc, torch.cuda.OutOfMemoryError)
+            yield result | {
+                "model_id": MODEL_ID,
+                "model_revision": revision,
+                "gpu": GPU,
+                "dtype": "float16",
+                "inference_seconds": time.perf_counter() - started,
+                "model_load_seconds": model_load_seconds,
             }
-        yield result | {
-            "model_id": MODEL_ID,
-            "model_revision": revision,
-            "gpu": "T4",
-            "dtype": "float16",
-            "inference_seconds": time.perf_counter() - started,
-            "model_load_seconds": model_load_seconds,
-        }
+            if restart:
+                return  # Remaining questions are retried with a fresh model invocation.
+    finally:
+        del generator
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 @app.local_entrypoint()
@@ -105,138 +119,46 @@ def main(
     context_mode: str = "replace",
     max_searches: int = 6,
     top_k: int = 2,
-    num_examples: int = 1,
+    num_examples: int = 50,
+    full_test: bool = False,
+    batch_size: int = 10,
+    attempts: int = 3,
     dashboard: bool = False,
     resume: str = "",
+    retry_errors: bool = False,
+    verbose: bool = False,
+    dry_run: bool = False,
 ):
-    from dataclasses import asdict
+    from baseline_agent.runner import run_evaluation
 
-    from huggingface_hub import HfApi
-
-    from baseline_agent.agent import AgentConfig
-    from baseline_agent.data import load_evaluation_examples
-    from baseline_agent.evaluation import export_rows, record_result
-
-    examples = load_evaluation_examples(example_index, num_examples)
-    config = AgentConfig(
-        context_mode=context_mode, max_searches=max_searches, top_k=top_k
-    )
-    print(
-        f"Selected {len(examples)} test questions starting at index {example_index}",
-        flush=True,
-    )
-    # Warm the independent CPU service before allocating a T4. This readiness
-    # probe is unrelated to the test question and never enters the model prompt.
-    service = modal.Cls.from_name("finance-rag-search", "SearchService")()
-    probe = service.search.remote(
-        {"ticker": "AAPL", "year": 2002, "query": "net sales", "top_k": 1}
-    )
-    if probe.get("status") != "ok":
-        raise RuntimeError(
-            "Deploy the working search service before running the baseline"
-        )
-    revision = HfApi().model_info(MODEL_ID).sha
-    experiment_id = uuid4().hex[:12] if not resume else Path(resume).name
-    directory = (
-        Path("data/baseline/experiments") / experiment_id
-        if not resume
-        else Path(resume).resolve()
-    )
-    if resume and (
-        not directory.is_relative_to(Path("data/baseline/experiments").resolve())
-        or not directory.is_dir()
-    ):
-        raise ValueError("Resume directory must be an existing baseline experiment")
-    labels = {x["question"]["id"]: x["gold_answer"] for x in examples}
-    contexts = {x["question"]["id"]: x["gold_context_id"] for x in examples}
-    rows = []
-    completed = set()
-    for example in examples:
-        saved = directory / (example["question"]["id"] + ".json")
-        if resume and saved.exists():
-            previous = json.loads(saved.read_text(encoding="utf-8"))
-            if (
-                previous["model_revision"] != revision
-                or previous["question"] != example["question"]
-                or previous["config"]
-                != asdict(config)
-                | {"seed": config.seed + example["question"]["example_index"]}
-            ):
-                raise ValueError(
-                    "Saved example has incompatible model, dataset or configuration"
-                )
-            rows.append(
-                record_result(
-                    previous,
-                    example["gold_answer"],
-                    directory,
-                    example["gold_context_id"],
-                )
-            )
-            completed.add(example["question"]["id"])
-    if dashboard and rows:
-        from baseline_agent.observability import write_dashboard
-
-        write_dashboard(rows, directory / "tensorboard-resumed")
-    pending = [x["question"] for x in examples if x["question"]["id"] not in completed]
-    if pending:
-        download_model.remote(revision)
-    summary = export_rows(rows, directory) if rows else {}
-    # Only whitelisted questions cross this call boundary. Scoring remains
-    # local after predictions return, even when five share one loaded model.
-    generated_results = (
-        run_examples.remote_gen(pending, asdict(config), revision)
-        if pending
-        else iter(())
-    )
-    for result in generated_results:
-        result["run_id"] = experiment_id
-        rows.append(
-            record_result(
-                result,
-                labels[result["question"]["id"]],
-                directory,
-                contexts[result["question"]["id"]],
-            )
-        )
-        summary = export_rows(rows, directory)
-        if dashboard:
-            from baseline_agent.observability import write_dashboard
-
-            try:
-                write_dashboard(
-                    rows[-1:],
-                    directory / "tensorboard-resumed"
-                    if resume
-                    else directory / "tensorboard",
-                    start_step=len(rows) - 1,
-                )
-            except Exception:
-                logger.exception(
-                    "Dashboard export failed; continuing with CSV and JSON"
-                )
-                dashboard = False
-        print(
-            json.dumps(
-                {
-                    "id": rows[-1]["id"],
-                    "correct_answer": rows[-1]["correct_answer"],
-                    "our_answer": rows[-1]["our_answer"],
-                    "score": rows[-1]["score"],
-                    "inference_seconds": rows[-1]["inference_seconds"],
-                },
-                indent=2,
+    try:
+        run_evaluation(
+            lambda questions, config, revision: run_examples.remote_gen(
+                questions, config, revision, verbose
             ),
-            flush=True,
+            download_model.remote,
+            lambda: modal.Cls.from_name(
+                "finance-rag-search", "SearchService"
+            )().search.remote(
+                {"ticker": "AAPL", "year": 2002, "query": "net sales", "top_k": 1}
+            ),
+            MODEL_ID,
+            MODEL_REVISION,
+            GPU,
+            start=example_index,
+            count=None if full_test else num_examples,
+            context_mode=context_mode,
+            max_searches=max_searches,
+            top_k=top_k,
+            batch_size=batch_size,
+            attempts=attempts,
+            dashboard=dashboard,
+            resume=resume,
+            retry_errors=retry_errors,
+            dry_run=dry_run,
         )
-    print(
-        json.dumps(
-            summary
-            | {
-                "experiment": str(directory.resolve()),
-                "csv": str((directory / "results.csv").resolve()),
-            },
-            indent=2,
-        ),
-        flush=True,
-    )
+    except KeyboardInterrupt:
+        print("Interrupted. Saved results are resumable.")
+    except Exception as exc:
+        logger.exception("Pilot/full evaluation stopped")
+        raise SystemExit(1) from exc
