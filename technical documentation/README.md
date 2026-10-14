@@ -627,3 +627,36 @@ versus gold inconsistencies (notably `finqa_test_56`, whose asked 2015–2017
 calculation differs from the gold's 2016–2017 calculation). Such findings do
 not estimate overall annotation-noise prevalence. Benchmark scores remain
 frozen; audit corresponding patterns in train/dev before choosing RL rewards.
+
+## Evaluation dashboard
+
+`baseline_agent/dashboard.py` serves the local read-only FastAPI dashboard and
+its JSON/CSV endpoints. It discovers experiment directories containing run.json,
+reads per-question scored traces, and derives diagnostics without altering saved
+scores. It reuses protocol.py for action validity and scoring.py for numeric
+parsing. Cached diagnostics invalidate when trace files or canonical metadata
+change. Broken trace files are counted explicitly; unknown measurements are N/A.
+
+`baseline_agent/dashboard.html` is the dependency-free browser interface. It
+provides run selection, separate answer/search compliance, benchmark and signed
+numeric/exact scores, timing/token summaries, evidence/outcome matrix drilldown,
+search repetition and failure counts, question filtering, complete turn inspection,
+and paired run comparisons. Text from model/API outputs is escaped before display.
+The API binds to 127.0.0.1 and has no write endpoints or cloud calls.
+
+The optional local data/finqa/contexts.jsonl is read for canonical company/year
+metadata only, to diagnose reference-excluding applied filters. It is never used
+as a retrieval fallback or passed to a model. If absent, those diagnostics are
+unavailable. Gold-context identity is taken from saved retrieval_validation.
+All-required-evidence coverage is not claimed because current labels identify a
+single canonical context rather than a verified complete evidence set.
+
+`tests/test_dashboard.py` checks scoring distinctions, evidence replacement,
+repetition, protocol recovery, question-only N/A behavior, reference filter
+exclusions, malformed-file handling, CSV export, and API access to saved runs.
+Start with `.\.tools\uv.exe run --frozen python -m baseline_agent.dashboard`,
+then open http://127.0.0.1:8501. Ctrl+C stops the local process. Reading runs does
+not start GPU or Elasticsearch containers. Future compatible runs appear after
+Refresh runs; comparisons pair only identical IDs, questions and gold answers,
+show unmatched counts and flag configuration differences instead of attributing
+changes automatically to RL.

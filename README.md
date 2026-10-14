@@ -430,3 +430,27 @@ external index. Do not deploy it when using the private default above.
   should generate tool arguments; hidden gold metadata must not fill them in
   during end-to-end experiments. Keep retrieved observations out of policy
   generated-token loss.
+
+## Local evaluation dashboard
+
+Start the read-only dashboard from the project root:
+
+```powershell
+.\.tools\uv.exe run --frozen python -m baseline_agent.dashboard
+```
+
+Open http://127.0.0.1:8501. Stop with Ctrl+C in that terminal. This uses saved
+experiment files only; no Modal, model inference, or Elasticsearch is started.
+No extra dependencies are needed. Select a primary run and optionally a comparison
+run. Click an evidence/outcome matrix cell to inspect its questions, then open a
+question for model outputs, exact generation inputs, API responses and context.
+Use Refresh runs after new checkpoints are saved. Export diagnostics as CSV.
+
+Number Match retains saved benchmark scores. Signed numeric and exact text match
+are supplementary diagnostics. Reference retrieval means canonical context-ID
+match, not proof of complete evidence. Active-at-answer is N/A without a final
+answer. Format checks use the current parser, not a replay of historical parser
+code. Reference-excluding issuer/year filters compare against optional local
+corpus metadata; these are evaluation diagnostics, not live retrieval fallbacks.
+The dashboard never modifies original runs or sends diagnostics to the model.
+Use `--port 8502`, `--experiments PATH`, or `--corpus PATH` for alternate locations.
