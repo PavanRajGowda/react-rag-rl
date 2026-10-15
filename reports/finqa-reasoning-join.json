@@ -1,0 +1,113 @@
+{
+  "provenance": {
+    "original_repository": "https://github.com/czyssrs/FinQA",
+    "original_revision": "0f16e2867befa6840783e58be38c9efb9229d742",
+    "original_file_sha256": {
+      "train": "49f237eb9779b569473b26b08048867d04635a7cc39ad6a7a5664c55bb428db6",
+      "dev": "a847fb7e0d61a3125a1e2909852df6b89f1ee64d2c5ff1bf689e332214deee51",
+      "test": "831dbfb2e785dbc227f895ce3f24046433467aec67b09db2bd6ac7692a8a30dc"
+    },
+    "t2_revision": "adf7fe1541ac37351ce1142544d8e3b43010ed92",
+    "labels_sha256": "e23eb5478e40c3ed3c2f2bb35b10108fcaf1575462e02492558e5bc6557e98b4",
+    "contexts_sha256": "301676584646d68094649e144c1dd88153e4683670a7c87002710b2bd800b32f"
+  },
+  "definition": "Count of operations in original sequential gold program, verified against steps length. Not a multihop retrieval label. Reformulated-question semantics have not been verified.",
+  "join_checks": [
+    "same split and positional ID",
+    "exact source report/page path",
+    "original answer equality with null/blank normalization",
+    "one-to-one matched original IDs",
+    "program syntax and steps count agreement"
+  ],
+  "splits": {
+    "train": {
+      "total": 6251,
+      "matched": 6251,
+      "operation_counts": {
+        "1": 3717,
+        "2": 2013,
+        "3": 331,
+        "4": 94,
+        "5": 90,
+        "6": 6
+      }
+    },
+    "dev": {
+      "total": 883,
+      "matched": 883,
+      "operation_counts": {
+        "1": 523,
+        "2": 287,
+        "3": 43,
+        "4": 14,
+        "5": 16
+      }
+    },
+    "test": {
+      "total": 1147,
+      "matched": 1147,
+      "operation_counts": {
+        "1": 654,
+        "2": 409,
+        "3": 55,
+        "4": 10,
+        "5": 19
+      }
+    }
+  },
+  "unmatched": [],
+  "saved_run_results": {
+    "b836aee0ff0d": {
+      "1": {
+        "n": 654,
+        "nm_correct": 431,
+        "nm_accuracy": 0.6590214067278287,
+        "signed_numeric_correct": 298
+      },
+      "2": {
+        "n": 408,
+        "nm_correct": 254,
+        "nm_accuracy": 0.6225490196078431,
+        "signed_numeric_correct": 166
+      },
+      "3+": {
+        "n": 84,
+        "nm_correct": 44,
+        "nm_accuracy": 0.5238095238095238,
+        "signed_numeric_correct": 27
+      },
+      "unknown": {
+        "n": 0,
+        "nm_correct": 0,
+        "nm_accuracy": null,
+        "signed_numeric_correct": 0
+      }
+    },
+    "41b9ecf7703e": {
+      "1": {
+        "n": 654,
+        "nm_correct": 53,
+        "nm_accuracy": 0.08103975535168195,
+        "signed_numeric_correct": 41
+      },
+      "2": {
+        "n": 408,
+        "nm_correct": 40,
+        "nm_accuracy": 0.09803921568627451,
+        "signed_numeric_correct": 19
+      },
+      "3+": {
+        "n": 84,
+        "nm_correct": 2,
+        "nm_accuracy": 0.023809523809523808,
+        "signed_numeric_correct": 2
+      },
+      "unknown": {
+        "n": 0,
+        "nm_correct": 0,
+        "nm_accuracy": null,
+        "signed_numeric_correct": 0
+      }
+    }
+  }
+}

@@ -454,3 +454,25 @@ code. Reference-excluding issuer/year filters compare against optional local
 corpus metadata; these are evaluation diagnostics, not live retrieval fallbacks.
 The dashboard never modifies original runs or sends diagnostics to the model.
 Use `--port 8502`, `--experiments PATH`, or `--corpus PATH` for alternate locations.
+
+### Original FinQA reasoning labels
+
+The dashboard now groups performance by original gold-program operation count:
+1, 2, and 3+ operations, with clickable question filters and a paired-run table.
+Question details include the original question, program, source ID and support IDs.
+These describe numerical reasoning steps, not multiple retrieval hops.
+
+Rebuild the evaluation-only join (public downloads, no model inference):
+
+```powershell
+.\.tools\uv.exe run --frozen python -m baseline_agent.finqa_reasoning --download
+```
+
+Original files are pinned under `data/finqa_original/`; the sidecar is
+`data/finqa/reasoning_annotations.json` and the tracked audit is
+`reports/finqa-reasoning-join.json`. All 8,281 rows match by split/index, exact
+source report/page and original answer, with null/blank answers normalized.
+The join checks one-to-one IDs and agreement between program operation count and
+annotated steps. It does not certify reformulated question meaning. Dashboard
+labels require matching dataset revision, question and gold answer; otherwise
+they display unavailable. Existing prediction files and scores remain unchanged.

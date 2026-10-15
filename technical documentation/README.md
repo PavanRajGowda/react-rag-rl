@@ -660,3 +660,41 @@ not start GPU or Elasticsearch containers. Future compatible runs appear after
 Refresh runs; comparisons pair only identical IDs, questions and gold answers,
 show unmatched counts and flag configuration differences instead of attributing
 changes automatically to RL.
+
+### Original FinQA join and reasoning complexity
+
+`baseline_agent/finqa_reasoning.py` optionally downloads train/dev/test JSON from
+czyssrs/FinQA pinned at 0f16e2867befa6840783e58be38c9efb9229d742. It joins local
+T2 labels using split and positional ID, requiring independently matching source
+report/page path and original answer. Null and empty original answers are
+normalized. It rejects failed checks instead of guessing from fuzzy question
+similarity or numeric answer similarity. Each original ID must be used once.
+It validates the flat program syntax and agrees operation count with qa.steps.
+
+The generated data/finqa/reasoning_annotations.json sidecar includes original ID,
+question, program, operators, operation count/bucket, and supporting fact IDs.
+reports/finqa-reasoning-join.json records source commit, file SHA256 digests, join
+coverage and distributions. FinQA train/dev/test coverage is 6251/6251,
+883/883 and 1147/1147. The full scored test set excludes the pre-existing blank
+question, leaving buckets of 654 one-operation, 408 two-operation, and 84 three-
+or-more-operation questions. Baseline NM is respectively 431/654 (65.90%),
+254/408 (62.25%) and 44/84 (52.38%). Question-only is 53/654 (8.10%),
+40/408 (9.80%) and 2/84 (2.38%). Results here come from unchanged saved outputs.
+Rebuilding the join report regenerates coverage; the saved_run_results section
+in the current audit records this additional offline baseline aggregation.
+
+Dashboard loading validates sidecar dataset revision, exact stripped question
+and gold-answer representation against each saved trace. Unknown or stale labels
+are unavailable, not assumed single-step. The sidecar is never used by inference,
+retrieval, the Modal image or prompts. It supplies overview and comparison tables,
+question filters and expandable original annotations. Missing sidecars are safe.
+Original question/program complexity is a proxy: reformulated questions may have
+changed meaning, redundant operations may be present, and several numerical
+operations can use one table. Supporting rows/sentences are not separate indexed
+documents, so no true multihop retrieval claim follows from these counts.
+
+`tests/test_finqa_reasoning.py` covers successful joins, document/answer/index
+mismatches, null-answer normalization, malformed programs and step-count mismatch,
+and dashboard rejection of stale revisions or changed questions. Run
+`.\.tools\uv.exe run --frozen python -m baseline_agent.finqa_reasoning --download`
+to reproduce the join; omit --download to use previously downloaded inputs.

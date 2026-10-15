@@ -193,11 +193,21 @@ def diagnose(trace, reference_metadata=None):
     }
 
 
-def create_app(experiments=None, corpus=None):
+def create_app(experiments=None, corpus=None, reasoning=None):
     base = Path(experiments or ROOT / "data/baseline/experiments").resolve()
     app = FastAPI(title="FinanceRAG evaluation", docs_url=None, redoc_url=None)
 
     corpus_path = Path(corpus or ROOT / "data/finqa/contexts.jsonl")
+    reasoning_path = Path(reasoning or ROOT / "data/finqa/reasoning_annotations.json")
+
+    @lru_cache(maxsize=2)
+    def reasoning_catalog(signature):
+        if not reasoning_path.is_file():
+            return {}
+        return read_json(reasoning_path)
+
+    def reasoning_signature():
+        return reasoning_path.stat().st_mtime_ns if reasoning_path.is_file() else None
 
     @lru_cache(maxsize=2)
     def reference_catalog(signature):
@@ -222,7 +232,22 @@ def create_app(experiments=None, corpus=None):
 
     def evaluate(trace):
         gold = trace.get("retrieval_validation", {}).get("gold_context_id")
-        return diagnose(trace, catalog().get(gold))
+        result = diagnose(trace, catalog().get(gold))
+        annotations = reasoning_catalog(reasoning_signature())
+        annotation = annotations.get("rows", {}).get(result["id"])
+        valid = (
+            annotation
+            and annotation.get("status") == "matched"
+            and annotations.get("provenance", {}).get("t2_revision")
+            == trace["question"].get("dataset_revision")
+            and annotation.get("t2_question", "").strip() == result["question"].strip()
+            and str(annotation.get("t2_gold_answer")) == str(result["gold"])
+        )
+        result["reasoning_annotation"] = annotation if valid else None
+        result["reasoning_bucket"] = (
+            annotation["reasoning_bucket"] if valid else "unknown"
+        )
+        return result
 
     def directory(run):
         path = (base / run).resolve()
@@ -263,6 +288,7 @@ def create_app(experiments=None, corpus=None):
     def run_data(run: str):
         path = directory(run)
         signature = (
+            reasoning_signature(),
             corpus_path.stat().st_mtime_ns if corpus_path.is_file() else None,
             tuple(
                 (p.name, p.stat().st_mtime_ns, p.stat().st_size)
