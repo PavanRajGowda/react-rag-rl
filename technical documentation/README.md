@@ -1521,3 +1521,19 @@ divided by trajectories in the current collection attempt (retries can reset it)
 It is not elapsed-time completion for an optimizer step. Other phases show their
 name without inventing a percentage. Refreshing a synthetic/static run changes
 the check timestamp but does not manufacture new metrics.
+
+### First GPU smoke: PEFT target-list export compatibility
+
+The first H100 attempt passed search preflight and loaded the model, but failed
+before its initial checkpoint: PEFT 0.18.1 compresses sufficiently large exact
+target-module sets into shorter suffixes during adapter injection. Our saved
+config equality guard correctly rejected that changed representation.
+`model.preserve_explicit_targets()` now checks the actual trainable adapter
+module names equal the entire reviewed target set, then restores explicit
+names in the PEFT config before export. The artifact verifier remains strict.
+The CPU regression uses 100 tiny layers (200 targets), reproduces compression
+and the original export failure, rejects a missing reviewed target, then verifies
+successful export with the complete exact target set. The prior two-target tests
+did not cross PEFT's compression threshold. No new GPU run was launched to test
+this fix. Because the failed attempt created run.json and source identity has
+changed, restart with a fresh run ID such as grpo-smoke-002, without --resume.

@@ -408,6 +408,18 @@ def test_loader_pins_snapshot_and_freezes_base_model(tmp_path, monkeypatch):
 
     class TrainModel(Model):
         config = NS(use_cache=True)
+        def __init__(self):
+            super().__init__()
+            self.peft_config = {"default": NS(target_modules={"down_proj", "q_proj"})}
+
+        def named_parameters(self):
+            return [
+                (
+                    f"base_model.model.{name}.lora_A.default.weight",
+                    NS(requires_grad=True),
+                )
+                for name in TARGETS
+            ]
 
         def requires_grad_(self, value):
             calls["base_grad"] = value

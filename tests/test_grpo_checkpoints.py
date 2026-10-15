@@ -210,3 +210,42 @@ def test_checkpoint_rejects_policy_step_mismatch(setup):
     trainer, _, store, artifact, _ = setup
     with pytest.raises(ValueError, match="step mismatch"):
         store.save(trainer, artifact, Progress(step=1))
+
+
+def test_large_peft_target_list_exports_exact_reviewed_names(tmp_path):
+    from grpo_training.model import preserve_explicit_targets, text_lora_targets
+
+    config = TrainingConfig()
+    base = TinyBase(tmp_path / "large-base")
+    # Cross PEFT's optimization threshold, unlike the two-target toy fixture.
+    import copy
+
+    layer = base.model.language_model.layers[0]
+    base.model.language_model.layers = torch.nn.ModuleList(
+        [copy.deepcopy(layer) for _ in range(100)]
+    )
+    base.requires_grad_(False)
+    targets = text_lora_targets(name for name, _ in base.named_modules())
+    model = get_peft_model(
+        base,
+        LoraConfig(
+            target_modules=list(targets),
+            r=config.lora_rank,
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+            bias="none",
+        ),
+    )
+    assert len(model.peft_config["default"].target_modules) < len(targets)
+    bundle = TrainingModel(
+        model, NS(chat_template="large-target-test"), tmp_path, config, targets
+    )
+    with pytest.raises(ValueError, match="target modules disagree"):
+        export_adapter(bundle, tmp_path / "transfers", 0)
+    with pytest.raises(ValueError, match="Injected LoRA layers disagree"):
+        preserve_explicit_targets(model, targets[:-1])
+    preserve_explicit_targets(model, targets)
+    artifact = export_adapter(bundle, tmp_path / "transfers", 0)
+    saved = json.loads((artifact.path / "adapter_config.json").read_text())
+    assert set(saved["target_modules"]) == set(targets)
+    assert artifact.verify() is artifact

@@ -56,6 +56,20 @@ def trainable_names(named_parameters):
     return names
 
 
+def preserve_explicit_targets(model, targets):
+    """Undo PEFT's large-list suffix compression after checking injected layers."""
+    names = trainable_names(model.named_parameters())
+    actual = {
+        re.fullmatch(r"base_model\.model\.(.+)\.lora_[AB]\.default\.weight", name)[1]
+        for name in names
+    }
+    if actual != set(targets) or text_lora_targets(targets) != targets:
+        raise ValueError("Injected LoRA layers disagree with reviewed text targets")
+    # PEFT may replace hundreds of exact names with short suffixes during
+    # injection. Keep the saved transfer config explicit; do not broaden checks.
+    model.peft_config["default"].target_modules = set(targets)
+
+
 def check_runtime():
     if sys.version_info[:2] != (3, 11):
         raise RuntimeError("Training runtime requires Python 3.11")
@@ -135,6 +149,7 @@ def load_training_model(config, cache_dir=None):
             target_modules=list(targets),
         ),
     )
+    preserve_explicit_targets(model, targets)
     model.config.use_cache = False
     if config.gradient_checkpointing:
         model.gradient_checkpointing_enable(
