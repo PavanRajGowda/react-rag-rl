@@ -538,3 +538,20 @@ included. See the technical README for the status table and review details.
 ```
 
 This module does not call a model, query Elasticsearch, retry groups or run GRPO.
+
+### GRPO review Commit 3: independent search episodes
+
+`grpo_training/environment.py` accepts generated text and an injected search API
+callable; it does not generate text or instantiate a network/cloud client.
+SearchEpisode preserves baseline XML parsing, formatting feedback, evidence
+replacement, candidate/year feedback, and turn/search limits. Each episode has
+independent state. Known API resolution errors are observations; exhausted
+transport failures or malformed/mismatched API responses terminate unscorable.
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_environment.py -q
+```
+
+The future rollout backend must check token budgets before generation and enforce
+transport deadlines. This step only tests scripted local calls; token records,
+model integration, batching and live service verification remain for later review.

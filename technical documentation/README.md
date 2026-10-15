@@ -861,3 +861,83 @@ mismatched IDs, unknown statuses, serialization and GPU/cloud-free imports.
 Offline parity checks against both full saved runs agree on every scored row:
 RAG 729/1146, question-only 95/1146. The pre-existing blank question is excluded;
 no new inference was performed and prediction files/scores were not modified.
+
+## GRPO search environment — review Commit 3
+
+`grpo_training/environment.py` provides SearchEpisode, RetryPolicy and backend
+response checks. No model, tokenizer, gold labels, reward, TRL/vLLM or Modal
+client is imported or instantiated. Search is an injected callable: production
+binding to the existing Elasticsearch service is deferred. Tests use mocks only;
+no live search or paid compute was used for this commit.
+
+Review SearchEpisode in this order:
+
+- Constructor accepts only the allowlisted Question plus TrainingConfig and an
+  API callable. It rejects test-split questions, revision mismatch and blank
+  questions. Each instance owns separate events, turns, requests, terminal state,
+  answer and evidence flag. Same-question GRPO samples can share immutable config
+  without sharing episode history. Feed outputs serially per episode; later
+  batching will interleave separate instances rather than concurrently mutate one.
+- messages() reuses the baseline question/system messages, select_history and the
+  baseline observation continuation suffix. Model outputs become assistant turns;
+  API information and formatting feedback become user turns. Only newest API
+  information remains active, while earlier model reasoning and format feedback
+  stay available. Full history remains available in defensive audit snapshots.
+  The caller will apply the chat template and assistant prefill in later steps.
+- accept_output() accepts one complete model segment, including any assistant
+  prefill. It calls the unchanged parse_action and format_information functions.
+  Invalid XML gets the same controller feedback, consumes a generation, and does
+  not execute a search. Candidate/year errors are returned verbatim as escaped
+  information; the environment never supplies hidden issuer/year/gold hints.
+  Broad fallback stays server-owned; there is no local contexts.jsonl shortcut.
+- Search limits count logical API calls, including known semantic errors. Retry
+  attempts do not consume additional model turns or logical search slots. Once
+  the final allowed search is executed, a subsequent answer is still allowed;
+  another search request terminates search_limit. Last-turn actions are processed
+  before turn_limit, matching the baseline.
+- The accepted-answer evidence gate deliberately matches baseline behavior:
+  any earlier nonempty successful retrieval is sufficient, even if a later search
+  replaced it with empty/error results. This is NOT a requirement that current
+  evidence be nonempty, canonical, or relevant. Do not change this silently when
+  comparing RL to the evaluated baseline. Nonnumeric accepted answers are left
+  for the existing reward scorer to reject; the controller adds no numeric reward.
+- check_context_budget(input_tokens) is the explicit pre-generation boundary.
+  Prompt + max_new_tokens must fit max_context_tokens; otherwise mark context_limit
+  without truncation. Actual tokenization/enforcement wiring belongs to the later
+  rollout/model adapter. A generic ValueError from a generation backend must not
+  be guessed to mean context overflow: fail_generation records infrastructure_error.
+- snapshot() is a defensive text-level audit, not the Step-4 token/logprob record.
+  It contains no gold and calculates no reward. Terminal episodes reject further
+  outputs. Inspection messages/snapshots cannot mutate the internal history.
+
+Search response/failure contract:
+
+| Backend outcome | Environment handling |
+| --- | --- |
+| ok + matching corpus/schema + valid documents | Format once; expose complete text/headers/footnotes without rechunking |
+| ok + empty results | Normal observation; does not authorize a first answer |
+| unknown_company / ambiguous_company / company_mismatch / report_year_unavailable / invalid_request | Normal API feedback, no automatic retry |
+| Backend exception such as timeout/connection/incomplete-response RuntimeError | Bounded attempts; audit each exception and backoff |
+| Malformed response, wrong corpus/schema, unknown error code, integration TypeError/KeyError/ValueError | Stop as infrastructure_error without retry or fake evidence |
+| Attempts exhausted | infrastructure_error; no error text injected as evidence; Step-2 reward is None |
+
+Retries default to three attempts and sleeps of 1 then 2 seconds. RetryPolicy
+validates at most five attempts and finite nonnegative backoff up to ten seconds.
+The injected API transport MUST enforce per-call timeouts. Python cannot abort a
+hung blocking callable here: the retry policy bounds attempts, not total wall
+clock. Avoid an additional outer retry wrapper; server-internal retries must be
+accounted for separately when binding the production transport. The broad except
+at the injected backend boundary is intentional: every failure is audited and
+technical outcomes are unscorable, not silently converted to model mistakes.
+Group-level retry/exclusion is deferred to rollout orchestration; this module
+does not mutate group membership or compute advantages.
+
+`tests/test_grpo_environment.py` includes 30 CPU tests. Nine scripted scenarios
+compare exact chat inputs, events, search requests/responses and terminal status
+against baseline_agent.agent.run_agent using its real QwenGenerator renderer with
+an inert tokenizer. Coverage includes format recovery, answer-before-search,
+resolution feedback, empty results, evidence replacement, sticky evidence gate,
+and limits. Other cases cover interleaved independent samples, defensive copies,
+HTML/tag escaping, table preservation, API-owned broad fallback, year correction,
+retry accounting/exhaustion, response-contract failures, explicit context overflow,
+generation failure, input boundaries and fresh-process GPU/cloud-free imports.
