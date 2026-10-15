@@ -1511,3 +1511,13 @@ model, cache integrity, RNG/mode restoration, unchanged native TRL gradients,
 TensorBoard writing, resume and orphaned reference measurements. These do not
 establish real Qwen/vLLM/H100 compatibility or acceptable instrumentation overhead.
 The root README provides local dashboard and TensorBoard commands.
+
+Dashboard refresh/progress follow-up: manual refresh disables the button while
+fetching, bypasses browser caching, times out after 15 seconds and displays its
+last successful check time separately from artifact/remote-sync freshness. The
+overall progress bar is checkpoint-committed optimizer steps divided by max_steps.
+During generation/search collection, the second bar is terminal trajectories
+divided by trajectories in the current collection attempt (retries can reset it).
+It is not elapsed-time completion for an optimizer step. Other phases show their
+name without inventing a percentage. Refreshing a synthetic/static run changes
+the check timestamp but does not manufacture new metrics.
