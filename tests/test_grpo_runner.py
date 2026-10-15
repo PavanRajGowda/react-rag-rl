@@ -12,6 +12,7 @@ from grpo_training.collection import collect_groups
 from grpo_training.config import TrainingConfig
 from grpo_training.data import PreparedSplit, Question, RewardLabel
 from grpo_training.environment import RetryPolicy, SearchEpisode
+from grpo_training.observability import NullObserver
 from grpo_training.records import PolicyVersion
 from grpo_training.rollouts import template_digest
 from grpo_training.runner import run_identity, run_training
@@ -115,6 +116,7 @@ def setup_run(tmp_path, *, config=None):
         "backward_fn": lambda *a: trace.append("backward") or 0.25,
         "release_memory": lambda: trace.append("release"),
         "emit": lambda *a, **kw: None,
+        "observer": NullObserver(),
     }
     return trainer, bundle, Backend(trace), train, store, kwargs, trace
 

@@ -1,7 +1,10 @@
 """Batched independent episodes, with bounded whole-question search retries."""
 
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
+import json
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 
 from grpo_training.environment import SearchEpisode
 from grpo_training.records import SamplingParameters, generation_seed
@@ -40,6 +43,8 @@ def collect_groups(
     completed, pending = {}, questions
     sampling = SamplingParameters(config.temperature, config.top_p)
     for attempt in range(group_attempts):
+        started = time.perf_counter()
+        ended = {}
         recorders = []
         for question in pending:
             gid = f"round-{round_index}-{question.id}-attempt-{attempt}"
@@ -64,20 +69,57 @@ def collect_groups(
                     (r, r.prepare(tokenizer)) for r in recorders if not r.episode.done
                 ]
                 ready = [(r, request) for r, request in ready if request is not None]
+                for recorder in recorders:
+                    if recorder.episode.done:
+                        ended.setdefault(
+                            recorder.episode_id, time.perf_counter() - started
+                        )
                 if not ready:
                     continue
                 requests = tuple(request for _, request in ready)
+                audit(
+                    {
+                        "kind": "generation_started",
+                        "round": round_index,
+                        "attempt": attempt,
+                        "requests": len(requests),
+                        "active": len(requests),
+                        "completed": sum(r.episode.done for r in recorders),
+                        "total": len(recorders),
+                    }
+                )
                 batch = backend.generate(requests)
                 if tuple(g.request for g in batch.generations) != requests:
                     raise ValueError(
                         "Generation backend changed rollout membership/order"
                     )
-                futures = [
-                    pool.submit(g.record_into, recorder, tokenizer)
+                audit(
+                    {
+                        "kind": "searches_started",
+                        "round": round_index,
+                        "attempt": attempt,
+                        "requests": len(requests),
+                    }
+                )
+                futures = {
+                    pool.submit(g.record_into, recorder, tokenizer): recorder
                     for (recorder, _), g in zip(ready, batch.generations, strict=True)
-                ]
-                for future in futures:
+                }
+                for future in as_completed(futures):
                     future.result()  # Exceptions abort, never fabricate a trajectory.
+                    recorder = futures[future]
+                    if recorder.episode.done:
+                        ended[recorder.episode_id] = time.perf_counter() - started
+                    audit(
+                        {
+                            "kind": "collection_progress",
+                            "round": round_index,
+                            "attempt": attempt,
+                            "completed": sum(r.episode.done for r in recorders),
+                            "total": len(recorders),
+                            "active": sum(not r.episode.done for r in recorders),
+                        }
+                    )
                 audit(
                     {
                         "kind": "generation_batch",
@@ -85,9 +127,21 @@ def collect_groups(
                         "attempt": attempt,
                         "requests": len(requests),
                         "seconds": batch.seconds,
+                        "output_tokens": sum(
+                            len(g.completion_ids) for g in batch.generations
+                        ),
+                        "input_tokens": sum(len(r.prompt_ids) for r in requests),
                     }
                 )
-        episodes = tuple(r.finish() for r in recorders)
+        episodes = []
+        for recorder in recorders:
+            episode = recorder.finish()
+            snapshot = json.loads(episode.controller_audit_json)
+            snapshot["collection_seconds"] = ended[episode.episode_id]
+            episodes.append(
+                replace(episode, controller_audit_json=json.dumps(snapshot))
+            )
+        episodes = tuple(episodes)
         audit(
             {
                 "kind": "rollout_attempt",

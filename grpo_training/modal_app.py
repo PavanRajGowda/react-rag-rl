@@ -128,7 +128,9 @@ def release_writer(registry, run_id, token):
     scaledown_window=2,
     single_use_containers=True,
 )
-def train_run(run_id, config_values, train_values, identity, resume=False):
+def train_run(
+    run_id, config_values, train_values, identity, resume=False, reference_metadata=None
+):
     from grpo_training.checkpoints import Progress, RunStore
     from grpo_training.config import TrainingConfig
     from grpo_training.data import PreparedSplit, Question, RewardLabel
@@ -175,6 +177,7 @@ def train_run(run_id, config_values, train_values, identity, resume=False):
             progress=progress,
             pending=pending,
             rng=rng,
+            reference_catalog=reference_metadata,
         )
     finally:
         try:
@@ -202,6 +205,14 @@ def main(
         ROOT / "data/finqa", config, train_count=train_count, dev_count=1
     )
     identity = run_identity(config, train)
+    from grpo_training.metrics import reference_catalog
+
+    catalog = reference_catalog(
+        ROOT / "data/finqa/contexts.jsonl",
+        {label.gold_context_id for label in train.labels},
+    )
     warm_model.remote(config.to_dict())
-    result = train_run.remote(run_id, config.to_dict(), asdict(train), identity, resume)
+    result = train_run.remote(
+        run_id, config.to_dict(), asdict(train), identity, resume, catalog
+    )
     print(json.dumps(result, indent=2))

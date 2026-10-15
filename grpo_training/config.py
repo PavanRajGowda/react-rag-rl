@@ -52,6 +52,7 @@ class TrainingConfig:
     epsilon_low: float = 0.2
     epsilon_high: float = 0.28
     vllm_importance_sampling_cap: float = 2.0
+    reference_probe_questions: int = 4
 
     def __post_init__(self):
         positive_ints = (
@@ -67,6 +68,7 @@ class TrainingConfig:
             "lora_alpha",
             "num_iterations",
             "num_generations",
+            "reference_probe_questions",
             "top_k",
         )
         for name in positive_ints:

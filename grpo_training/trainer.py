@@ -254,6 +254,8 @@ def backward_update(trainer, captured):
     total = 0.0
     try:
         for inputs in loss_microbatches(trainer, captured):
+            if getattr(trainer, "_loss_metrics", None) is not None:
+                trainer._loss_metrics.inputs = inputs
             with trainer.compute_loss_context_manager():
                 loss = trainer.compute_loss(trainer.model, inputs)
             if loss.ndim or not torch.isfinite(loss).item() or not loss.requires_grad:

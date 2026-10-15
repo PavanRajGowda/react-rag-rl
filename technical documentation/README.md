@@ -1391,3 +1391,123 @@ scheduler preparation and stepping using its reference CPU LM-head kernel.
 These establish local contracts; Qwen LoRA mapping, real vLLM sleep/wake and weight
 synchronization, H100 memory peaks and probability tolerances still require the
 separately approved compatibility smoke before a research training run.
+
+## Commit 8: training observability and live dashboard
+
+The existing training loop now records observability without changing rewards,
+advantages, the DAPO loss, or beta=0. No GPU job or remote deployment was launched
+for this step. All implementation checks are local CPU checks.
+
+File responsibilities and connections:
+
+- `baseline_agent/diagnostics.py` contains the baseline dashboard's shared pure
+  episode diagnostic function, moved without changing its definitions. Both the
+  baseline dashboard and GRPO metrics import it, so reference hits, format errors,
+  repeated requests/sets, no-new-context and failure labels agree.
+- `grpo_training/metrics.py` converts complete grouped EpisodeRecords and separate
+  RewardLabels into diagnostic traces, per-episode records, group statistics and
+  pooled numerator/denominator rates. GenerationRequest/GenerationRecord token
+  counts remain authoritative. Reference metadata retains only company ID and
+  report year for diagnostic exclusion checks; no document text is a retrieval
+  shortcut. Gold answers/context IDs never enter model prompts or search calls.
+- `collection.py` reports active/completed trajectories and generation/search
+  phases to the observer. Completion order is observed as search futures finish.
+  Engine batch seconds and token counts are measured jointly; they are not
+  fabricated into individual generation latency. Per-trajectory collection time
+  includes waiting and tool calls. Detailed events preserve failed group attempts.
+- `grpo_training/observability.py` owns atomic JSON files, TensorBoard events,
+  phase/progress publication and loss instrumentation. The runner initializes it,
+  sends collection events, registers each fresh rollout, wraps replay/backward,
+  measures reference KL after the optimizer update, and publishes the step after
+  its checkpoint succeeds. TensorBoard/volume flushes occur at most every five
+  seconds during progress, plus forced checkpoint/completion boundaries; UI
+  freshness also depends on remote volume visibility and mirror latency.
+- `grpo_training/reference.py` creates a fixed probe from the first four selected
+  training questions (configurable with reference_probe_questions). For each,
+  it uses exactly the initial generation prompt and measures the next-token
+  distribution across the full vocabulary. The original base distribution is
+  cached on CPU with adapters disabled and hash-checked on resume. The current
+  distribution is measured at step zero and after EVERY optimizer step, with
+  training temperature, no top-p filtering, evaluation mode and no gradients.
+  RNG and training mode are restored. This is KL(current || original pretrained),
+  averaged across probe positions in nats, not a full-trajectory KL. It is a
+  monitor only and does not add a reference penalty to the loss. It requires
+  extra policy forward passes; their duration is recorded separately.
+- `grpo_training/dashboard.py` serves a read-only localhost dashboard and CSV
+  endpoints. Its optional ModalMirror downloads only existing observability and
+  TensorBoard files from finance-rag-grpo-runs, retaining the last good data on
+  network errors. It does not invoke a GPU function. Immutable files are reused;
+  index/live files and changed TensorBoard files refresh periodically. The reader
+  includes only checkpoint-committed steps and deduplicates reused rollout IDs.
+- `grpo_training/dashboard.html` is the offline browser UI with a five-second
+  refresh, raw and smoothed charts, tables, filters and expandable episode traces.
+  The existing baseline UI on port 8501 is independent; training defaults to 8502.
+- `grpo_training/trainer.py` supplies the current microbatch inputs to the metrics
+  collector. The collector observes detached copies of existing log-probability
+  outputs, then returns the original tensors and computational graph unchanged.
+  It adds no extra replay forward pass. The isolated GPU dependency lock adds
+  TensorBoard; the root environment/lock are unchanged.
+
+Metric timing, units and denominators:
+
+- Loss, pre-clipping gradient norm, learning rates, token count and PPO diagnostics
+  are raw per optimizer step. Loss is computed before that update; reference KL
+  is measured after it. A 20-step UI window is only a display aggregation, with
+  all-history and other window options. Loss windows weight by generated tokens;
+  rate windows sum counts before division. Distribution standard deviations use
+  sample standard deviation; undefined measurements display N/A rather than zero.
+- Reward/Number Match, signed numeric match, normalized exact match, format,
+  evidence and search behavior belong to unique fresh rollout batches. Rollout
+  reuse does not multiply these samples. Infrastructure failures are unscorable,
+  and failed collection attempts remain in raw audit events rather than becoming
+  incorrect-answer rewards. All-equal-reward groups remain visible and are not
+  removed: zero group variation means no relative outcome learning signal.
+- PPO ratio is exp(current training log-probability minus captured old-policy
+  log-probability) on generated tokens only. Out-of-bounds counts use ALL generated
+  tokens. Objective clipping additionally depends on advantage sign; the UI gives
+  both all-token and nonzero-advantage-token denominators. These are distinct from
+  the fixed old-policy/vLLM sampling correction. Raw correction-above-cap counts
+  are measured BEFORE capping, with applied weights summarized separately.
+- Sample KL estimates from sampled token log-probabilities are explicitly labeled
+  estimates and may be negative. They are distinct from exact full-vocabulary
+  fixed-prefix reference KL. Entropy and clipping do not include prompt, retrieved
+  information or padding targets. Masking direct prediction loss does not detach
+  conditioning prompt computations from the graph.
+- Reference-ever and reference-active-at-answer follow baseline context IDs.
+  Replacement can make ever=true but active=false. First-hit search/generation
+  medians use hits only; reciprocal rank uses the first hit. These are evidence
+  retrieval diagnostics, not proof of multihop reasoning. Repeated request means
+  the same search parameters, repeated set the same returned context-ID set, and
+  no-new-context means every returned context was previously seen.
+- Backward and optimizer durations are separate; update seconds cover replay and
+  optimizer work, excluding later reference measurement/checkpoint work. Checkpoint
+  and reference-probe seconds are separate. Phase publication/instrumentation can
+  add overhead. Engine batch throughput uses the batch's measured seconds; it
+  excludes search latency and is not whole-training throughput. CUDA memory shows
+  device usage (including vLLM) separately from PyTorch's replay peak. Missing
+  individual-generation timing is N/A, not inferred from shared batch latency.
+
+Persistence layout under a run directory:
+
+- `observability/live.json` and `index.json`: current phase and committed records.
+- `observability/steps/`: one raw optimizer record per completed checkpoint.
+- `observability/rollouts/`: one behavior/reward record per unique rollout batch.
+- `observability/traces/`: full per-episode diagnostic traces and exact token records.
+- `observability/reference/`: one KL measurement per optimizer step, including zero.
+- `reference_probe/`: immutable probe identity and cached base distributions.
+- `tensorboard/`: standard TensorBoard event files.
+
+Resume prunes index entries beyond the restored checkpoint; orphaned later
+reference measurements are recomputed. TensorBoard purges later steps. Pending
+reused rollouts retain their existing behavior metrics without fresh-rollout logs.
+The dashboard CSVs export all committed records; episode browsing is bounded to
+recent records for responsiveness. Volume polling serves last-good data while
+files are propagating, so a running dashboard can temporarily lag training.
+
+Tests in `test_grpo_observability.py` cover shared definitions, pooling, correction
+caps, episode traces, dashboard/CSV routes and read-only incremental mirroring.
+Optional CPU ML tests in `test_grpo_reference.py` check exact KL against a toy
+model, cache integrity, RNG/mode restoration, unchanged native TRL gradients,
+TensorBoard writing, resume and orphaned reference measurements. These do not
+establish real Qwen/vLLM/H100 compatibility or acceptable instrumentation overhead.
+The root README provides local dashboard and TensorBoard commands.

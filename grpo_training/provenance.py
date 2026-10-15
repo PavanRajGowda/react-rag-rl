@@ -75,6 +75,8 @@ def training_source_hashes(root=ROOT):
         root / "baseline_agent/prompt.py",
         root / "baseline_agent/protocol.py",
         root / "baseline_agent/scoring.py",
+        root / "baseline_agent/diagnostics.py",
+        root / "baseline_agent/retrieval_diagnostics.py",
     ]
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()

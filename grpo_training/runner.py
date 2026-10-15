@@ -112,6 +112,8 @@ def run_training(
     export_fn=export_adapter,
     collect_fn=collect_groups,
     release_memory=None,
+    observer=None,
+    reference_catalog=None,
 ):
     """One caller owns the GPU/run lock. Checkpoint after every successful step.
 
@@ -148,16 +150,25 @@ def run_training(
 
     if rng is not None:
         restore_rng(rng)  # Model/trainer/vLLM must already exist.
+    if observer is None:
+        from grpo_training.observability import RunObserver
+
+        observer = RunObserver(
+            store, trainer, bundle, train, reference_catalog=reference_catalog
+        )
     artifact = export_fn(bundle, store.root / "transfers", progress.step)
     awake = True  # Newly constructed vLLM starts awake, with no registered adapter.
     try:
+        observer.start(progress)
         if progress.step == 0 and pending is None:
             store.save(trainer, artifact, progress)
         if pending is not None:
             backend.sleep()
             awake = False
+            observer.rollout(pending, fresh=False, round_index=progress.round_index - 1)
         while progress.step < config.max_steps:
             if pending is None:
+                observer.phase("synchronize", step=progress.step)
                 release_memory()
                 if not awake:
                     backend.wake_up()
@@ -170,6 +181,11 @@ def run_training(
                 questions = tuple(train.questions[i] for i in indices)
                 labels = tuple(train.labels[i] for i in indices)
                 started = time.perf_counter()
+
+                def audit(event):
+                    store.audit(event)
+                    observer.event(event)
+
                 groups = collect_fn(
                     questions,
                     config,
@@ -180,12 +196,14 @@ def run_training(
                     progress.round_index,
                     group_attempts=group_attempts,
                     search_workers=search_workers,
-                    audit=store.audit,
+                    audit=audit,
                 )
                 backend.sleep()
                 awake = False
                 prepared = prepare_update(groups, labels)
+                observer.phase("old_policy_capture", step=progress.step)
                 pending = capture_fn(trainer, prepared, artifact, bundle)
+                observer.rollout(pending, fresh=True, round_index=progress.round_index)
                 agreement = probability_agreement(pending)
                 store.audit(
                     {
@@ -214,8 +232,19 @@ def run_training(
                     round_index=progress.round_index + 1,
                 )
             started = time.perf_counter()
-            loss = backward_fn(trainer, pending)
+            observer.phase("backward", step=progress.step + 1)
+            with observer.loss(trainer) as policy_metrics:
+                loss = backward_fn(trainer, pending)
+            backward_seconds = time.perf_counter() - started
+            learning_rate = (
+                trainer.optimizer.param_groups[0]["lr"]
+                if hasattr(trainer, "optimizer")
+                else None
+            )
+            observer.phase("optimizer", step=progress.step + 1)
+            optimizer_started = time.perf_counter()
             grad_norm = step_fn(trainer, config)
+            optimizer_seconds = time.perf_counter() - optimizer_started
             progress = replace(
                 progress,
                 step=trainer.state.global_step,
@@ -233,12 +262,24 @@ def run_training(
                 "zero_advantage_episodes": sum(s.advantage == 0 for s in signals),
                 "tokens": pending.prepared.token_count,
                 "seconds": time.perf_counter() - started,
+                "backward_seconds": backward_seconds,
+                "optimizer_seconds": optimizer_seconds,
+                "learning_rate_used": learning_rate,
+                "learning_rate_next": trainer.optimizer.param_groups[0]["lr"]
+                if hasattr(trainer, "optimizer")
+                else None,
+                "policy_metrics": policy_metrics.summary() if policy_metrics else None,
             }
+            observer.reference_step(progress.step)
+            observer.phase("checkpoint", step=progress.step)
             artifact = export_fn(bundle, store.root / "transfers", progress.step)
             if progress.iteration == config.num_iterations:
                 pending = None
                 progress = replace(progress, iteration=0)
+            checkpoint_started = time.perf_counter()
             checkpoint = store.save(trainer, artifact, progress, pending)
+            metrics["checkpoint_seconds"] = time.perf_counter() - checkpoint_started
+            observer.step(metrics)
             store.audit(metrics | {"checkpoint": checkpoint.name})
             emit(
                 f"Step {progress.step}/{config.max_steps} | reward={metrics['mean_reward']:.3f} "
@@ -251,6 +292,7 @@ def run_training(
             "run_directory": str(store.root),
         }
     except Exception as exc:
+        observer.close("failed")
         trainer.model.zero_grad(set_to_none=True)
         store.audit(
             {
@@ -264,3 +306,4 @@ def run_training(
     finally:
         if awake:
             backend.sleep()
+        observer.close("completed")

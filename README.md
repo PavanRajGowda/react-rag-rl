@@ -694,3 +694,33 @@ CPU checks (no Modal invocation):
 
 The isolated CPU environment setup is in Commit 6's section above. GPU numerical
 and memory validation remains necessary before an actual research training run.
+
+### Commit 8: live GRPO observability
+
+Training now writes raw measurements at every optimizer step. The dashboard
+refreshes every five seconds and defaults to a 20-step display window; smoothing
+does not change stored measurements. Start it in a separate PowerShell window:
+
+```powershell
+.\.tools\uv.exe run --frozen python -m grpo_training.dashboard --run-dir data/grpo/grpo-smoke-001 --modal-run-id grpo-smoke-001 --port 8502
+```
+
+Open http://127.0.0.1:8502/. This mirrors existing files from the run volume; it
+never launches a training worker. Omit `--modal-run-id` for already-local results.
+The run ID must match your actual run. An optional second window provides
+TensorBoard over the mirrored event files:
+
+```powershell
+.\.tools\uv.exe run --frozen --group observability tensorboard --logdir data/grpo/grpo-smoke-001/tensorboard --port 6007
+```
+
+The dashboard includes loss/gradients, clipping and importance ratios, reference
+KL, group reward variation, answer/format/retrieval quality, repeated searches,
+evidence-versus-answer outcomes, timing, episode traces and CSV downloads.
+Reward and behavior summaries count each fresh rollout once, even when several
+optimizer steps reuse it. Rate windows pool numerators and denominators.
+Reference KL is measured at step zero and after every optimizer update on fixed
+training-question prefixes, against the original pretrained model with adapters
+disabled. It is a diagnostic; beta remains zero. See the technical README for
+precise definitions and timing boundaries. GPU overhead/compatibility still need
+the separately approved H100 smoke run.
