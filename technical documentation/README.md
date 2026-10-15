@@ -813,3 +813,51 @@ an identity-specific folder. Repeating that write with the same identity fails
 rather than overwriting a previous inspection; omit the flag to inspect again.
 The full local train/dev inspection selects 6,251/883 nonblank questions. No test
 questions are selected; no inference, indexing or paid compute is started.
+
+## GRPO outcome reward — review Commit 2
+
+`grpo_training/rewards.py` is a pure CPU outcome wrapper around the unchanged
+baseline_agent.scoring.score_answer. episode_reward receives a question ID,
+terminal controller status, accepted answer string/None and separate RewardLabel.
+It validates ID alignment, accepted input types and known terminal statuses;
+unsupported gold raises InvalidRewardLabel. An unknown status also raises rather
+than silently assigning a negative reward. No raw trace/prompt parsing occurs.
+
+| Terminal status / answer | Outcome | Reward | Number Match field |
+| --- | --- | --- | --- |
+| answered + numeric match | correct | 1 | 1 |
+| answered + numeric mismatch | incorrect | 0 | 0 |
+| answered + unparseable text | invalid_answer | 0 | 0 |
+| answered + missing/blank answer | missing_answer | 0 | 0 |
+| search_limit / turn_limit / context_limit / invalid_protocol / answer_policy_violation | unfinished | 0 | N/A |
+| infrastructure_error / postprocessing_error | technical_failure | None (unscorable) | N/A |
+
+EpisodeReward is frozen and contains terminal status/outcome, optional reward and
+Number Match, parse validity, normalized values and sign agreement. to_dict adds
+scorable explicitly. Unfinished episodes get zero even if a stale/partial answer
+field happens to contain the gold value. Earlier recovered formatting failures
+have no additional penalty: only the accepted terminal outcome determines reward.
+The environment in Commit 3 must enforce protocol/evidence acceptance before
+marking a result answered. This module does not verify search history itself.
+
+Scoring retains the existing metric: epsilon 0.01, absolute values, nearest-power-
+of-ten normalization, both absolute values below epsilon considered matching,
+and Yes/No predictions mapped to 1/0. Numerical parser conventions (percent signs,
+currency, scientific notation, thousands separators, accounting negatives) are
+unchanged. No format bonus, retrieval bonus, length penalty, search penalty or
+signed/same-scale reward is added. Sign disagreement is visible diagnostically
+but does not alter reward. Reward labels/reference IDs never become model inputs.
+
+None must never be coerced to zero or included in group-baseline calculations.
+Retrying/excluding infrastructure-affected groups is deliberately NOT implemented
+here: rollout/group orchestration will enforce that later. Bad gold is a data
+error even for a technical-failure record, and raises before reward assignment.
+No reward-model, model, TRL, vLLM, datasets or Modal import is required.
+
+`tests/test_grpo_rewards.py` covers 42 cases: parity with the existing scorer,
+boolean/zero/near-zero/tolerance/sign/scale/numeric-format cases, malformed and
+missing answers, stale values on unfinished/technical episodes, invalid labels,
+mismatched IDs, unknown statuses, serialization and GPU/cloud-free imports.
+Offline parity checks against both full saved runs agree on every scored row:
+RAG 729/1146, question-only 95/1146. The pre-existing blank question is excluded;
+no new inference was performed and prediction files/scores were not modified.

@@ -523,3 +523,18 @@ Transformers 5.5.4, PEFT 0.18.1, Accelerate 1.12.0 and datasets 4.8.5.
 Resolution is not an import/kernel/adapter-compatibility test; those checks
 remain in later reviewed commits. The baseline environment is unchanged.
 See `technical documentation/README.md` for the file-by-file review guide.
+
+### GRPO review Commit 2: outcome reward
+
+`grpo_training/rewards.py` wraps the existing Number Match scorer without changing
+its epsilon, sign/scale handling or Yes/No mapping. Accepted final answers earn
+1 for a match and 0 otherwise. Unfinished model episodes earn 0; infrastructure
+and postprocessing failures return an unscorable `None`. Invalid gold labels or
+mismatched question IDs raise errors. No additional format or retrieval reward is
+included. See the technical README for the status table and review details.
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_rewards.py -q
+```
+
+This module does not call a model, query Elasticsearch, retry groups or run GRPO.
