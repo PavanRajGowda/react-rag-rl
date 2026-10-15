@@ -493,3 +493,33 @@ Later-search reference recovery means first search missed the canonical context
 and a later search found it. The denominator is searched questions with a first-
 search miss; no-search questions are excluded. Recovery accuracy uses recovered
 questions only. Neither metric establishes true multihop retrieval requirements.
+
+## GRPO implementation review: Commit 1 only
+
+The `grpo_training/` package currently provides configuration, train/dev data
+boundaries and local preflight provenance. It does not contain a trainer or
+launch GPU jobs. Run the CPU-only inspection from the project root:
+
+```powershell
+.\.tools\uv.exe run --frozen python -m grpo_training.inspect
+.\.tools\uv.exe run --frozen python -m grpo_training.inspect --config grpo_training/configs/smoke.json --train-count 4 --dev-count 4
+```
+
+Add `--output-root data/grpo/preflight` to save a local review record. It refuses
+to overwrite an existing record of the same identity. All records say
+`execution_status: not_started`; these are not training checkpoints.
+
+The root environment runs inspection and CPU tests. The separate
+`grpo_training/pyproject.toml` + `uv.lock` target Linux x86_64 Python 3.11 for
+future Modal training. Do not sync that GPU environment on Windows. Check its
+lock without installing it using:
+
+```powershell
+.\.tools\uv.exe lock --project grpo_training --check
+```
+
+The training lock resolves TRL 1.15.0, vLLM 0.22.0, Torch 2.11.0,
+Transformers 5.5.4, PEFT 0.18.1, Accelerate 1.12.0 and datasets 4.8.5.
+Resolution is not an import/kernel/adapter-compatibility test; those checks
+remain in later reviewed commits. The baseline environment is unchanged.
+See `technical documentation/README.md` for the file-by-file review guide.

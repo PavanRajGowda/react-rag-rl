@@ -727,3 +727,89 @@ Question-only passes are 53/41/1 (8.07%/9.81%/1.41%). The existing blank test
 question has depth 2 but remains excluded from accuracy. Audit coverage remains
 all 8,281 joined examples. Tests cover parallel versus chained operations,
 unused branches, and malformed/self/forward dependency references.
+
+## GRPO training foundation — review Commit 1
+
+Scope: configuration and data boundaries only. No reward implementation,
+search execution, rollout generation, trainer/optimizer, model loading or Modal
+entry point exists in this package yet. Subsequent implementation commits and
+paid GPU smoke tests require the user's explicit review approval.
+
+File-by-file review order:
+
+1. `grpo_training/config.py`: frozen TrainingConfig with explicit pinned model
+   and dataset revisions, unchanged baseline search/context limits, and proposed
+   GRPO/LoRA/vLLM settings. It rejects invalid types/ranges, unknown keys, unpinned
+   revisions, unsupported modes and groups smaller than two. This is experiment
+   intent, not a direct GRPOConfig kwargs dictionary. num_generations counts full
+   episodes per question; questions_per_update * num_generations gives the logical
+   episode batch. replay_microbatch_segments counts model generations replayed for
+   loss, not episodes. Actual accumulation and loss are deferred. LoRA target
+   modules are deliberately deferred until model inspection in Commit 5.
+2. `grpo_training/configs/smoke.json`: four episodes per question, two questions
+   per logical update, one replay segment per microbatch and three proposed
+   optimizer steps. Unspecified fields inherit TrainingConfig defaults. This file
+   does not execute training. Default config is eight episodes/four questions.
+3. `grpo_training/data.py`: immutable Question and RewardLabel objects are stored
+   separately in PreparedSplit. policy_messages accepts Question only and uses
+   the existing baseline system prompt plus the question text. It never copies
+   raw dataset fields, supplied prompt/system fields, gold answers, context IDs,
+   company/year metadata, document text or original programs into the model
+   prompt. Values already present in the natural-language question remain there.
+   Reward labels may later reside in the trainer process; separation is a model-
+   input boundary, not a claim that the trainer never sees labels.
+   load_pinned_split explicitly allows train/dev only and rejects test before
+   importing datasets or accessing the network. It requests the configured
+   immutable Hugging Face revision. prepare_rows validates split/index IDs and
+   label shape, skips blank/null questions with IDs recorded, and fails empty
+   selections. It does not calculate rewards or silently repair malformed labels.
+   load_local_splits reads the existing prepared QA labels for offline inspection,
+   checks manifest dataset/revision/corpus and split counts, and hashes the exact
+   input bytes. Existing local artifacts can contain test rows; these are never
+   selected or converted into model tasks. Declared provenance is checked, not
+   independently authenticated against Hugging Face; hashes expose local changes.
+4. `grpo_training/provenance.py`: builds a content-addressed preflight identity
+   over resolved config, selected IDs, separate model-input/reward-label hashes,
+   source-file hashes and input-file hashes. Captures Git HEAD/dirty status and
+   inspection Python version outside that identity. It records not_started and
+   lock-resolution-only explicitly, and refuses to overwrite earlier review
+   records. Root/baseline lockfiles are not modified. Report-sharing remains a
+   local decision; no publishing/network calls occur here.
+5. `grpo_training/inspect.py`: safe CPU-only CLI composing config → prepared local
+   train/dev selections → provenance. Prints counts/identity and optionally saves
+   preflight.json. No trainer, GPU model, reward scoring or cloud client import.
+6. `grpo_training/pyproject.toml` and `uv.lock`: separate Linux x86_64/Python 3.11
+   dependency graph for future Modal training. Stable TRL 1.15.0 exposes the
+   planned rollout hook; vLLM 0.22.0 requires Torch 2.11.0 and excludes our baseline
+   Transformers 5.3.0, so that environment is intentionally separate. Resolved
+   versions include Transformers 5.5.4, PEFT 0.18.1, Accelerate 1.12.0 and datasets
+   4.8.5. All transitive dependencies are locked. Package constraints resolve;
+   package imports, model/LoRA synchronization, CUDA kernels and memory remain
+   UNVERIFIED until the later approved compatibility smoke test. Model quantization is not requested; vLLM can bring quantization-related
+   libraries as transitive dependencies.
+7. `grpo_training/__init__.py`: package marker, no side effects.
+8. `tests/test_grpo_foundation.py`: CPU tests for invalid configurations, batch
+   units, label/metadata sentinel exclusion from prompts, pinned loader kwargs,
+   test rejection before access, malformed/blank data handling, manifest mismatch,
+   provenance sensitivity to changed labels/config, no-overwrite behavior, and a
+   fresh-process assertion that inspection imports no GPU/cloud/data libraries.
+
+Training data QA is train-only, checkpoint selection QA is dev-only. The existing
+retrieval corpus still contains indexed train/dev/test document contexts, as in
+the baseline; this is not report-disjoint evaluation. Gold-context diagnostics
+and original program annotations do not become model inputs or rewards here.
+
+Local review commands (from repository root):
+
+```powershell
+.\.tools\uv.exe lock --project grpo_training --check
+.\.tools\uv.exe run --frozen python -m grpo_training.inspect
+.\.tools\uv.exe run --frozen python -m grpo_training.inspect --config grpo_training/configs/smoke.json --train-count 4 --dev-count 4
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_foundation.py -q
+```
+
+Optional `--output-root data/grpo/preflight` saves immutable local records under
+an identity-specific folder. Repeating that write with the same identity fails
+rather than overwriting a previous inspection; omit the flag to inspect again.
+The full local train/dev inspection selects 6,251/883 nonblank questions. No test
+questions are selected; no inference, indexing or paid compute is started.
