@@ -484,3 +484,28 @@ def test_loader_pins_snapshot_and_freezes_base_model(tmp_path, monkeypatch):
     }
     assert calls["training"] and not model.config.use_cache
     assert tokenizer.pad_token == "eos"
+
+
+def test_identical_group_prompts_use_separate_sampling_requests(setup):
+    _, artifact, engine, backend = setup
+    backend.config = replace(CONFIG, temperature=2.0)
+    engine.reply = normal_reply
+    requests = tuple(
+        replace(
+            request(artifact, i),
+            prompt_ids=(101, 102),
+            prompt_text="Same question and initial context<reasoning>",
+            sampling=SamplingParameters(temperature=2.0),
+        )
+        for i in range(4)
+    )
+    backend.generate(requests)
+    call = engine.calls[0]
+    parameters = call[1]["sampling_params"]
+    assert len(parameters) == 4
+    assert len({id(p) for p in parameters}) == 4
+    assert {p.seed for p in parameters} == {r.seed for r in requests}
+    assert len({p.seed for p in parameters}) == 4
+    assert all(p.n == 1 and p.temperature == 2.0 for p in parameters)
+    assert all(p.top_p == 1.0 and p.top_k == 0 for p in parameters)
+    assert len({tuple(p["prompt_token_ids"]) for p in call[0]}) == 1

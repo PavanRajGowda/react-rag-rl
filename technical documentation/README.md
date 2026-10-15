@@ -1537,3 +1537,18 @@ successful export with the complete exact target set. The prior two-target tests
 did not cross PEFT's compression threshold. No new GPU run was launched to test
 this fix. Because the failed attempt created run.json and source identity has
 changed, restart with a fresh run ID such as grpo-smoke-002, without --resume.
+
+### Higher-temperature independence smoke
+
+`configs/smoke-high-temperature.json` changes only temperature from 0.7 to 2.0
+relative to the reviewed smoke configuration. Temperature 2.0 is an aggressive
+diversity stress setting, not a universal API maximum. Keep the same first six
+training questions, four trajectories per group and three optimizer steps to
+isolate temperature. Each trajectory has its own SearchEpisode/recorder;
+collection derives sample-specific seeds and prepare derives turn-specific seeds.
+The vLLM backend creates one SamplingParams(n=1) per request, passing each seed
+explicitly in a batched generation call. Batch scheduling does not share histories
+or intentionally share random streams between samples. Distinct seeds do not
+guarantee different answers. A CPU contract test checks separate sampling objects
+and seeds for identical prompts at temperature 2.0; actual previous raw records
+confirm distinct per-group seeds and generated text at temperature 0.7.
