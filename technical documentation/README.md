@@ -941,3 +941,96 @@ and limits. Other cases cover interleaved independent samples, defensive copies,
 HTML/tag escaping, table preservation, API-owned broad fallback, year correction,
 retry accounting/exhaustion, response-contract failures, explicit context overflow,
 generation failure, input boundaries and fresh-process GPU/cloud-free imports.
+
+## GRPO rollout records and replay contracts — review Commit 4
+
+Scope is data capture and CPU checks only. No actual model generation, vLLM,
+weight transfer, GRPO advantages/loss, importance correction, optimizer or Modal
+runner is implemented. The controller can execute an injected search callable
+when recording outputs; this commit's tests use scripted local search only.
+
+Review `grpo_training/records.py` first:
+
+- PolicyVersion records immutable model/tokenizer revisions, adapter-state SHA256
+  (or base), optimizer step and template identity. Its ID fingerprints these
+  fields. This is an explicit claimed version, not proof of synchronization.
+  Step 5 must obtain/verify actual worker state; matching echoed IDs alone cannot
+  establish that a backend used the right weights.
+- SamplingParameters records temperature/top-p/generation top-k/repetition penalty.
+  Generation top-k is distinct from the retrieval K in TrainingConfig.
+- GenerationRequest records episode/group/question/sample/turn identity, a derived
+  per-turn seed, policy/sampling, exact rendered prompt text and token IDs, and
+  controller assistant prefill. The fixed prefill is already part of the prompt.
+  generation_seed hashes the episode seed and turn; group sample seeds must differ.
+- GenerationRecord stores ONLY newly sampled completion IDs and one finite,
+  nonpositive sampling logprob per token, decoded continuation, backend finish
+  reason and optional timing. These are sampling-distribution probabilities, NOT
+  training-engine old/current policy logprobs. The latter are deferred to Step 6.
+  Controller output is prefill + decoded continuation. Decoded text is never
+  re-encoded to replace the sampled token IDs; tokenization need not invert.
+  Sampled EOS/stop tokens must be retained with their real logprobs even when the
+  text decoder hides them. Empty/missing token records are rejected; adapters must
+  not invent token IDs or probabilities to make a record fit.
+- EpisodeRecord stores terminal state and all generation records, with no gold
+  labels. It validates identity, ordering, policy/sampling consistency, revisions,
+  token/turn bounds and the full per-turn generation reserve. It supports version-1
+  JSON reconstruction, copying vectors into immutable tuples. Final answers require
+  a sampled generation; only context/technical failures may have no generations.
+  Optional controller_audit_json retains the full controller snapshot (requests,
+  responses, feedback, events and errors) separately from replay inputs. It is an
+  immutable JSON string so mutable audit dictionaries cannot change a frozen
+  record. This is audit data, not an additional prompt or gold reward annotation.
+
+`grpo_training/rollouts.py` is the text-controller/token-record boundary:
+
+- EpisodeRecorder owns a fresh SearchEpisode. prepare(tokenizer) checks template
+  identity, applies the existing chat rendering settings, appends the baseline
+  assistant prefill and encodes without extra special tokens. It stores those
+  exact IDs and checks the prompt-plus-generation-reserve budget before sampling.
+  Explicit context overflow returns no request and fabricates no sampled tokens.
+- One generation may be pending per episode. record() requires backend-reported
+  prompt IDs, policy ID and sampling parameters matching that request. It validates
+  completion/probability lengths and token bounds before advancing the controller.
+  It decodes only to process XML; it never reconstructs token IDs from text.
+  EOS, action and length endings remain explicit. Truncation masking decisions
+  belong to the later loss implementation, not this capture layer.
+- Template identity covers the supplied chat template, system prompt, continuation
+  suffix, prefill and rendering options. It does not authenticate a tokenizer
+  vocabulary or checkpoint; actual revision/runtime verification remains Step 5.
+- fail_generation marks a technical failure without fabricated completion tokens.
+  finish requires a terminal controller and no pending request. Out-of-band
+  controller generation history changes fail rather than silently lose turns.
+
+`grpo_training/replay.py` preserves grouping and masks by token origin:
+
+- QuestionGroup requires exactly config.num_generations complete episodes of the
+  same question/config/policy/sampling with distinct IDs/seeds and sample indices
+  0..G-1. A question group is NOT a group of individual turns. Any technical failure
+  makes the whole group unscorable; replay raises GroupRequiresRetry rather than
+  dropping only failed peers. Retry/exclusion orchestration is still deferred.
+- replay_rows produces one teacher-forcing row per recorded generation, preserving
+  group/episode/sample/turn IDs. input_ids is that generation's original prompt
+  followed by its original completion. Older evidence removed before that turn is
+  not reintroduced. Prompt tokens have loss_mask 0 and labels -100; newly sampled
+  tokens have loss_mask 1 and their original target IDs. Earlier model reasoning
+  copied into a later prompt stays masked, so it is not counted again as output.
+  Masking is by origin, never by searching for information tags in generated text.
+- logit_positions selects the preceding-token logits for each completion target:
+  if prompt length P and completion length C, positions are P-1 through P+C-2.
+  Labels remain in target-token coordinates for the usual causal shift.
+- collate_replay right-pads plain Python sequences. Attention and loss masks derive
+  from lengths, not token values: sampled EOS remains active even if padding uses
+  the same ID. Sampling logprob zeros on prompt/padding positions are placeholders
+  and must be masked, never interpreted as actual environment-token probabilities.
+  No Torch tensor, loss normalization, reward broadcasting or advantage computation
+  occurs here. A group with no sampled tokens cannot produce a replay batch.
+
+`tests/test_grpo_replay.py` has 20 CPU cases. They cover exact replacement prompts,
+old reasoning versus new targets, normalized toy teacher-forcing probability
+agreement, wrong-context disagreement, unequal-length padding, sampled EOS,
+JSON round trips, probability/token validation, stale backend policy/prompt/
+sampling acknowledgments, missing/duplicate/mixed groups, infrastructure-group
+blocking, context/generation failures, pending-request discipline, and preventing
+unrecorded controller advancement. GPU/cloud packages are not imported. These
+verify contracts; they do not validate real tokenizer, CUDA kernels, vLLM sampling,
+weight synchronization, gradients or actual GRPO updates.

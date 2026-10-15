@@ -555,3 +555,20 @@ transport failures or malformed/mismatched API responses terminate unscorable.
 The future rollout backend must check token budgets before generation and enforce
 transport deadlines. This step only tests scripted local calls; token records,
 model integration, batching and live service verification remain for later review.
+
+### GRPO review Commit 4: token records and CPU replay contracts
+
+`grpo_training/records.py`, `rollouts.py`, and `replay.py` record complete episodes
+and construct per-generation teacher-forcing inputs. They do not run a model or
+calculate GRPO advantages, importance weights, gradients or optimizer updates.
+Each generation retains its actual prompt IDs and sampled token IDs/probabilities;
+replacement history is replayed per turn, never as a stitched growing transcript.
+The backend must report the expected prompt IDs, policy ID and sampling settings.
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_replay.py -q
+```
+
+Tests use an injected toy tokenizer and normalized toy probability model only.
+Real tokenizer/vLLM output, EOS capture and weight-sync verification remain for
+the separately reviewed Step 5. No GPU or live search is started here.
