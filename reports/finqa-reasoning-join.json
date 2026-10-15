@@ -11,7 +11,7 @@
     "labels_sha256": "e23eb5478e40c3ed3c2f2bb35b10108fcaf1575462e02492558e5bc6557e98b4",
     "contexts_sha256": "301676584646d68094649e144c1dd88153e4683670a7c87002710b2bd800b32f"
   },
-  "definition": "Count of operations in original sequential gold program, verified against steps length. Not a multihop retrieval label. Reformulated-question semantics have not been verified.",
+  "definition": "Original gold-program operation count and final-result dependency depth. Depth >=2 labels dependent multistep numerical reasoning, not multihop retrieval. Reformulated-question semantics have not been verified.",
   "join_checks": [
     "same split and positional ID",
     "exact source report/page path",
@@ -30,6 +30,14 @@
         "4": 94,
         "5": 90,
         "6": 6
+      },
+      "dependency_depths": {
+        "1": 3723,
+        "2": 2081,
+        "3": 368,
+        "4": 64,
+        "5": 12,
+        "6": 3
       }
     },
     "dev": {
@@ -41,6 +49,13 @@
         "3": 43,
         "4": 14,
         "5": 16
+      },
+      "dependency_depths": {
+        "1": 523,
+        "2": 301,
+        "3": 47,
+        "4": 10,
+        "5": 2
       }
     },
     "test": {
@@ -52,6 +67,13 @@
         "3": 55,
         "4": 10,
         "5": 19
+      },
+      "dependency_depths": {
+        "1": 657,
+        "2": 419,
+        "3": 60,
+        "4": 8,
+        "5": 3
       }
     }
   },
@@ -109,5 +131,56 @@
         "signed_numeric_correct": 0
       }
     }
+  },
+  "saved_run_dependency_results": {
+    "b836aee0ff0d": {
+      "1": {
+        "n": 657,
+        "nm_correct": 432,
+        "nm_accuracy": 0.6575342465753424
+      },
+      "2": {
+        "n": 418,
+        "nm_correct": 257,
+        "nm_accuracy": 0.6148325358851675
+      },
+      "3+": {
+        "n": 71,
+        "nm_correct": 40,
+        "nm_accuracy": 0.5633802816901409
+      },
+      "unknown": {
+        "n": 0,
+        "nm_correct": 0,
+        "nm_accuracy": null
+      }
+    },
+    "41b9ecf7703e": {
+      "1": {
+        "n": 657,
+        "nm_correct": 53,
+        "nm_accuracy": 0.0806697108066971
+      },
+      "2": {
+        "n": 418,
+        "nm_correct": 41,
+        "nm_accuracy": 0.09808612440191387
+      },
+      "3+": {
+        "n": 71,
+        "nm_correct": 1,
+        "nm_accuracy": 0.014084507042253521
+      },
+      "unknown": {
+        "n": 0,
+        "nm_correct": 0,
+        "nm_accuracy": null
+      }
+    }
+  },
+  "later_search_recovery": {
+    "recoveries": 70,
+    "first_search_misses_among_searched": 247,
+    "correct_after_recovery": 49
   }
 }

@@ -476,3 +476,20 @@ The join checks one-to-one IDs and agreement between program operation count and
 annotated steps. It does not certify reformulated question meaning. Dashboard
 labels require matching dataset revision, question and gold answer; otherwise
 they display unavailable. Existing prediction files and scores remain unchanged.
+
+### Numerical dependency depth and search recovery
+
+The dashboard separates three labels: total gold-program operation count,
+numerical reasoning dependency depth, and later-search reference recovery.
+Depth is the longest chain of operation nodes ending at the final program
+result. Direct calculation is depth 1; depth 2+ is dependent multistep numerical
+reasoning. References #0, #1, etc. connect operations. Parallel operations do not
+increase depth until their results feed another operation; unused branches are
+excluded from final-answer depth. Invalid/self/forward references are rejected.
+These are labels from the original gold program, not minimal reasoning depth or
+proof that multiple searches are required. Question details show dependencies.
+
+Later-search reference recovery means first search missed the canonical context
+and a later search found it. The denominator is searched questions with a first-
+search miss; no-search questions are excluded. Recovery accuracy uses recovered
+questions only. Neither metric establishes true multihop retrieval requirements.

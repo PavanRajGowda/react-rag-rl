@@ -4,7 +4,32 @@ import pytest
 from fastapi.testclient import TestClient
 
 from baseline_agent.dashboard import create_app
-from baseline_agent.finqa_reasoning import join_row, program_operations
+from baseline_agent.finqa_reasoning import (
+    join_row,
+    program_dependencies,
+    program_operations,
+)
+
+
+def test_depth_distinguishes_parallel_operations_and_unused_branches():
+    parallel = program_dependencies("subtract(5, 4), subtract(8, 6), divide(#0, #1)")
+    assert parallel["reasoning_depth"] == 2  # Three operations, two levels.
+    assert parallel["dependency_steps"][2]["depends_on"] == [0, 1]
+    chain = program_dependencies("subtract(5, 4), divide(#0, 4), multiply(#1, 100)")
+    assert chain["reasoning_depth"] == 3
+    assert chain["dependent_multistep_numerical_reasoning"]
+    independent = program_dependencies("add(1, 2), divide(#0, 4), subtract(8, 6)")
+    assert independent["reasoning_depth"] == 1
+    assert independent["unused_operation_indices"] == [0, 1]
+    assert not independent["dependent_multistep_numerical_reasoning"]
+
+
+@pytest.mark.parametrize(
+    "program", ["add(#0, 1)", "add(1, 2), divide(#2, 4)", "add(#x, 1)"]
+)
+def test_invalid_dependency_references_are_rejected(program):
+    with pytest.raises(ValueError):
+        program_dependencies(program)
 
 
 def example():

@@ -37,6 +37,52 @@ def program_operations(program):
     return [match.group(1) for match in matches]
 
 
+def program_dependencies(program):
+    """Depth counts operation nodes on the longest path to the final result."""
+    program_operations(program)
+    steps = []
+    for index, match in enumerate(re.finditer(r"([a-z_]+)\(([^()]*)\)", program)):
+        dependencies = set()
+        for argument in match[2].split(","):
+            argument = argument.strip()
+            if argument.startswith("#"):
+                reference = re.fullmatch(r"#(\d+)", argument)
+                if reference is None or int(reference[1]) >= index:
+                    raise ValueError(
+                        "Invalid, self or forward program-result reference"
+                    )
+                dependencies.add(int(reference[1]))
+        depth = 1 + max((steps[i]["depth"] for i in dependencies), default=0)
+        steps.append(
+            {
+                "index": index,
+                "operation": match[1],
+                "depends_on": sorted(dependencies),
+                "depth": depth,
+            }
+        )
+    needed = set()
+
+    def visit(index):
+        if index in needed:
+            return
+        needed.add(index)
+        for parent in steps[index]["depends_on"]:
+            visit(parent)
+
+    visit(len(steps) - 1)
+    depth = steps[-1]["depth"]
+    return {
+        "dependency_steps": steps,
+        "reasoning_depth": depth,
+        "depth_bucket": str(depth) if depth < 3 else "3+",
+        "dependent_multistep_numerical_reasoning": depth >= 2,
+        "final_result_ancestor_operations": sorted(needed),
+        "unused_operation_indices": sorted(set(range(len(steps))) - needed),
+        "depth_definition": "Longest operation dependency chain ending at the final program result. Direct calculations have depth 1; #i references connect previous results. Not a count of required searches.",
+    }
+
+
 def join_row(label, document, original_rows):
     """Use positional IDs only with independent document/answer verification."""
     result = {
@@ -64,6 +110,7 @@ def join_row(label, document, original_rows):
         return result | {"reason": "original_answer_mismatch"}
     try:
         operations = program_operations(qa.get("program"))
+        dependencies = program_dependencies(qa["program"])
     except ValueError as error:
         return result | {"reason": str(error)}
     if len(operations) != len(qa.get("steps", [])):
@@ -80,6 +127,7 @@ def join_row(label, document, original_rows):
         "original_execution_answer": qa.get("exe_ans"),
         "program": qa["program"],
         "operations": operations,
+        **dependencies,
         "operation_count": len(operations),
         "reasoning_bucket": "1"
         if len(operations) == 1
@@ -139,7 +187,7 @@ def build(original_dir, corpus_dir, output, report):
     }
     summary = {
         "provenance": provenance,
-        "definition": "Count of operations in original sequential gold program, verified against steps length. Not a multihop retrieval label. Reformulated-question semantics have not been verified.",
+        "definition": "Original gold-program operation count and final-result dependency depth. Depth >=2 labels dependent multistep numerical reasoning, not multihop retrieval. Reformulated-question semantics have not been verified.",
         "join_checks": [
             "same split and positional ID",
             "exact source report/page path",
@@ -157,6 +205,15 @@ def build(original_dir, corpus_dir, output, report):
                     sorted(
                         Counter(
                             r["operation_count"]
+                            for r in rows
+                            if r["split"] == split and r["status"] == "matched"
+                        ).items()
+                    )
+                ),
+                "dependency_depths": dict(
+                    sorted(
+                        Counter(
+                            r["reasoning_depth"]
                             for r in rows
                             if r["split"] == split and r["status"] == "matched"
                         ).items()

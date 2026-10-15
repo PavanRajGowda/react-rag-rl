@@ -247,6 +247,16 @@ def create_app(experiments=None, corpus=None, reasoning=None):
         result["reasoning_bucket"] = (
             annotation["reasoning_bucket"] if valid else "unknown"
         )
+        result["depth_bucket"] = (
+            annotation.get("depth_bucket", "unknown") if valid else "unknown"
+        )
+        result["later_search_recovery"] = (
+            result["first_hit_search"] > 1
+            if result["ever"] is not None and result["first_hit_search"] is not None
+            else False
+            if result["ever"] is not None
+            else None
+        )
         return result
 
     def directory(run):

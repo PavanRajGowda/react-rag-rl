@@ -698,3 +698,32 @@ mismatches, null-answer normalization, malformed programs and step-count mismatc
 and dashboard rejection of stale revisions or changed questions. Run
 `.\.tools\uv.exe run --frozen python -m baseline_agent.finqa_reasoning --download`
 to reproduce the join; omit --download to use previously downloaded inputs.
+
+### Dependency depth labels (distinct from total operation count)
+
+finqa_reasoning.program_dependencies builds a DAG from the sequential program's
+#i result references. Each operation depth is 1 + max(parent depths), or 1 with
+source values only. Reported reasoning_depth is the final operation's depth,
+so unused earlier branches cannot inflate final-result complexity. The sidecar
+stores dependency_steps, reasoning_depth, depth_bucket (1/2/3+), boolean
+dependent_multistep_numerical_reasoning (depth >=2), final-result ancestors and
+unused operation indices. Self/forward/malformed references fail validation.
+No claim of minimum necessary reasoning depth is made; original programs can
+contain redundant steps. These labels never enter model prompts or retrieval.
+
+The dashboard's Numerical reasoning dependency depth panel and filter are
+separate from Total program operations. Question details show result IDs,
+operations, dependencies and node depths. Comparison tables keep both dimensions.
+Later-search reference recovery is an observed trajectory diagnostic, not a
+dataset reasoning label: first search misses and a later search finds the
+canonical context. Recovery rate excludes no-search questions and divides by
+first-search misses among searched questions; recovery accuracy divides by
+recovered questions. Full RAG has 70/247 recovery (28.34%) with 49/70 correct
+(70%). Filter Later-search reference recovery opens those cases.
+
+The unchanged full-test outputs have depth buckets 657/418/71 scored questions
+for depths 1/2/3+; RAG NM passes are 432/257/40 (65.75%/61.48%/56.34%).
+Question-only passes are 53/41/1 (8.07%/9.81%/1.41%). The existing blank test
+question has depth 2 but remains excluded from accuracy. Audit coverage remains
+all 8,281 joined examples. Tests cover parallel versus chained operations,
+unused branches, and malformed/self/forward dependency references.
