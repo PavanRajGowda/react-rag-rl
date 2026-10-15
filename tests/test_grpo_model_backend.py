@@ -509,3 +509,21 @@ def test_identical_group_prompts_use_separate_sampling_requests(setup):
     assert all(p.n == 1 and p.temperature == 2.0 for p in parameters)
     assert all(p.top_p == 1.0 and p.top_k == 0 for p in parameters)
     assert len({tuple(p["prompt_token_ids"]) for p in call[0]}) == 1
+
+
+@pytest.mark.parametrize("stop", [None, 999])
+def test_unrecognized_stop_preserves_diagnostics_without_inventing_eos(setup, stop):
+    _, artifact, engine, backend = setup
+    engine.reply = lambda prompts, kw: [
+        result(prompts[0], kw["lora_request"], "x", reason="stop", stop=stop)
+    ]
+    with pytest.raises(ValueError, match="Unrecognized stop") as error:
+        backend.generate([request(artifact)])
+    details = json.loads(str(error.value).split(": ", 1)[1])
+    assert details["episode_id"] == "episode-0"
+    assert details["turn"] == 1
+    assert details["finish_reason"] == "stop"
+    assert details["stop_reason"] == stop
+    assert details["tail_token_ids"] == [120]
+    assert details["expected_eos_token_ids"] == [0]
+    assert details["generated_tokens"] == 1

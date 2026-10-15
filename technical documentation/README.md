@@ -1552,3 +1552,18 @@ or intentionally share random streams between samples. Distinct seeds do not
 guarantee different answers. A CPU contract test checks separate sampling objects
 and seeds for identical prompts at temperature 2.0; actual previous raw records
 confirm distinct per-group seeds and generated text at temperature 0.7.
+
+### Temperature-2 smoke result and stop diagnostics
+
+Run grpo-smoke-003-t2 stopped after one committed zero-gradient update. All eight
+first-batch episodes reached context_limit without a search; 49,289 output tokens
+were replayed and inspected first outputs were incoherent multilingual text. The
+next collection failed the strict backend stop guard. The saved error did not
+contain stop_reason or token IDs, so the exact stop mismatch cannot be established
+retroactively. The guard now records episode/turn, raw finish_reason/stop_reason,
+the final eight token IDs, expected EOS IDs, output count and engine segments.
+It still aborts unexpected stops and never fabricates a missing token/logprob.
+Tests cover stop_reason=None and an unexpected integer token. This is a diagnostic
+improvement, not a claim that the runtime mismatch is fixed. GPU app
+ap-Bz9LiqCdWwU7TijB6xGEB9 was confirmed stopped with zero tasks. No automatic
+retry was launched; temperature 2.0 did not yield usable financial trajectories.

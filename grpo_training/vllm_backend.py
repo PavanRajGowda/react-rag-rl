@@ -287,8 +287,19 @@ class VLLMBackend:
                         ):
                             again.append(index)
                         else:
+                            details = {
+                                "episode_id": request.episode_id,
+                                "turn": request.turn,
+                                "finish_reason": output.finish_reason,
+                                "stop_reason": output.stop_reason,
+                                "tail_token_ids": list(state["ids"][-8:]),
+                                "expected_eos_token_ids": sorted(self.eos_token_ids),
+                                "generated_tokens": len(state["ids"]),
+                                "engine_segments": state["segments"],
+                            }
                             raise ValueError(
-                                "Unrecognized stop or omitted sampled EOS token"
+                                "Unrecognized stop or omitted sampled EOS token: "
+                                + json.dumps(details, sort_keys=True)
                             )
                 pending = again
             generations = []
