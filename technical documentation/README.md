@@ -1249,3 +1249,145 @@ The implementation follows the pinned
 for advantage standardization, temperature-scaled old/current probabilities,
 clipping and DAPO token normalization. GPU numerical agreement and actual training
 remain separate approval/validation steps.
+
+### GRPO Commit 7: collection, update orchestration, checkpoints and Modal
+
+`grpo_training/collection.py` implements `collect_groups()` around the existing
+SearchEpisode/EpisodeRecorder pair. Each question gets G fresh independent
+recorders and deterministic sample seeds derived from experiment seed, round,
+question, group attempt and sample index. At each turn it prepares all active
+requests, calls VLLMBackend.generate once, verifies returned membership/order,
+then records outputs into their individual controllers. Recording can execute
+search calls on at most four worker threads; no controller is shared by threads.
+The search deployment itself remains unchanged (its concurrency limit is 16).
+
+Semantic API feedback, invalid model syntax and controller limits remain model
+outcomes. Only terminal infrastructure failures trigger up to two whole-question
+attempts. All G peers of a failed question are regenerated with a new attempt
+seed; successful other question groups remain intact. Every attempt is audited.
+The controller still owns its three per-search attempts/backoffs, so the two
+bounded retry levels are explicit. Generation exceptions, including OOM or bad
+backend token records, abort the job because the engine may be unhealthy. There
+is no automatic in-process GPU reset or reward-zero substitution.
+
+`grpo_training/runner.py` owns the production update order:
+
+1. Validate train-only inputs, numeric labels and exact run identity. Select a
+   deterministic cyclic batch of distinct questions from the prepared selection;
+   there is no shuffle or test-set access. The cursor is checkpointed.
+2. Export the current LoRA policy. Before a fresh rollout, release unused Torch
+   allocator memory, wake vLLM if asleep, and synchronize the exported adapter.
+3. Collect all required question groups and put vLLM to sleep. Version 1 sleep
+   offloads inference weights and discards KV allocation; training remains resident.
+4. Compute terminal rewards/advantages and capture fixed old-policy logprobs on
+   exact saved turn inputs. Audit mean/max absolute differences from sampled
+   logprobs. Fresh captures must satisfy mean <=0.1 and max <=1.0 logprob units.
+   These are conservative initial diagnostic thresholds, not measured H100
+   tolerances; they must be reviewed against the GPU smoke results. Failure aborts
+   before updating, without silently loosening the limits or changing rewards.
+5. Accumulate native TRL replay gradients. Clip trainable gradients to max_grad_norm
+   and reject nonfinite norms before optimizer.step. Refuse to advance if Accelerate
+   reports a skipped optimizer step. Step the scheduler and increment global_step
+   exactly once, then clear gradients to release memory before inference resumes.
+6. Export the updated adapter and save a checkpoint after every successful step.
+   If num_iterations allows rollout reuse, preserve the original captured old
+   logprobs/corrections and continue replay; do not generate between reuse steps.
+   Otherwise wake/synchronize only when the next rollout is needed. max_steps
+   bounds optimizer steps, including when it ends partway through a reused batch.
+
+`initialize_optimizer()` explicitly prepares the model and Trainer-created
+optimizer/scheduler with Accelerate, without invoking Trainer.train().
+`optimizer_step()` performs clipping, finite checks, stepping and step accounting.
+`run_training()` has injectable boundaries for CPU control-flow tests; the Modal
+entrypoint uses the real implementations. Failed optimizer/scheduler/export/save
+operations abort and never publish a checkpoint of a partially mutated step.
+The last completed checkpoint is the restart point. Initial step zero is saved
+before engine construction as well as at loop entry, so failed vLLM startup has
+a recovery point after model/trainer initialization.
+
+`grpo_training/checkpoints.py` provides the run store and recovery contract:
+
+- `RunStore` requires a simple run name and refuses to overwrite an existing run.
+  Resume requires the exact stored identity. `run_identity()` records config,
+  selected question IDs/prompt hash, separate reward-label hash and all training
+  source hashes plus the GPU pyproject/lock and baseline prompt/protocol/scorer.
+  Git status and absolute local paths are excluded, allowing the same identity
+  on Windows and Modal. `provenance.training_source_hashes()` is shared with the
+  earlier preflight implementation; the scorer is now included explicitly.
+- `Progress` tracks completed optimizer step, next-question cursor, next rollout
+  round and next iteration within the pending rollout batch. Adapter policy step
+  must agree with completed step. Pending trajectories may correctly have an
+  older sampling policy when several optimizer steps reuse the same rollouts.
+- Each checkpoint contains an adapter directory, state.json, training.pt and a
+  manifest of hashes for those files. state.json stores progress/current policy,
+  and any pending complete trajectory groups, episode signals, fixed old logprobs
+  and correction vectors. training.pt stores optimizer/scheduler states and Python,
+  NumPy, CPU Torch and all visible CUDA RNG states. NumPy state is converted to
+  ordinary values so training.pt can be loaded with torch.load(weights_only=True).
+- Writes go to a unique `.partial-*` directory. Only after serialization finishes
+  is that directory renamed to a completed checkpoint name, followed by replacing
+  latest.json. Open files are closed before the injected durable callback commits
+  the Modal Volume. Partial directories and orphaned completed directories are
+  not automatically treated as latest. There is no automatic rollback from a
+  corrupt latest checkpoint or claim of a distributed atomic volume transaction.
+- Restore verifies identity and every allowlisted file hash before deserialization.
+  It loads PEFT tensors into the existing adapter, rejects missing/unexpected LoRA
+  tensors, and re-exports to verify the restored policy hash. Optimizer/scheduler
+  states and global_step are restored. Pending rewards/advantages are recomputed
+  from separate current labels and compared with saved signals. Reuse position
+  must agree with the old sampling policy step and configured iteration limit.
+- RNG restoration happens after fresh model/trainer/vLLM construction, which can
+  consume random state. The selected-data cursor and deterministic rollout seeds
+  avoid needing a DataLoader sampler checkpoint. This does not promise bitwise GPU
+  equivalence across CUDA kernels, backend batching, service latency or hardware.
+- Timestamped unique event files preserve whole rollout attempts (including full
+  controller audit and per-turn token records), generation-batch timing, probability
+  differences, optimizer metrics and errors. Labels/gold contexts are not added to
+  prompts or search calls. Every-step checkpoints/full smoke traces are deliberately
+  verbose; storage retention/sampling and richer dashboards remain later work.
+
+`grpo_training/modal_app.py` defines resources without invoking them on import:
+
+- The CUDA 13.0.2 development image uses Linux Python 3.11 and Modal's uv_sync with
+  uv 0.13.0 and the frozen independent GPU lock. Source packages are added after
+  dependency installation. The root/baseline Python environment remains unchanged.
+- `warm_model` downloads the pinned snapshot to a cache volume on CPU, commits it,
+  and probes the existing Elasticsearch service against a known Apple report.
+  Corpus/schema and nonempty results must match before allocating the H100 job.
+  The diagnostic response is not supplied to training prompts.
+- `train_run` uses one H100, four CPUs, 32 GiB host memory, no automatic Modal
+  retries, no minimum warm GPU containers, a 24-hour deadline and a single-use
+  container. An atomic Modal Dict put-if-absent claim protects each run ID even
+  across separate app invocations. Normal completion/failure commits the run volume
+  and releases only its own lock. Hard termination can leave a stale lock; it must
+  not be removed until the old job is confirmed stopped.
+- The GPU worker checks local/remote source/data identity, initializes model and
+  Trainer, restores a requested checkpoint, creates vLLM and binds the deployed
+  SearchService. The search transport applies an asyncio deadline of 45 seconds
+  across submission and response waiting for each controller attempt. A timeout
+  allows up to two additional seconds for best-effort cancellation without
+  terminating the shared search container. SearchEpisode owns retry/backoff.
+- Default local-entrypoint arguments select the reviewed three-step smoke config
+  and first 16 source rows of the prepared training split (blank questions skipped).
+  The root README contains explicit later-run/resume/stop commands. No entrypoint,
+  image build, service call, deployment or paid GPU invocation was executed for
+  this implementation commit. Volume persistence follows the official
+  [Modal volume commit guidance](https://modal.com/docs/guide/volumes).
+
+`tests/test_grpo_runner.py` has 11 dependency-light cases for phase order, batch
+reuse, checkpoint boundaries, continuation after interruption, probability guards,
+optimizer failure, identity checks, batched episodes, bounded whole-group retries,
+generation aborts, context limits and lazy imports. `tests/test_grpo_modal.py` has
+four local-fake cases for exclusive/owner-checked run locks, submission/response
+deadlines and cancellation that preserves the search container. Imports construct Modal resource
+descriptions but do not hydrate resources, build an image or call remote functions.
+
+`tests/test_grpo_checkpoints.py` has 10 optional CPU cases using real Torch/PEFT
+adapter serialization and optimizer states: adapter/scheduler/RNG round trips,
+pending rollout reuse, identical next optimizer update after resume, corrupt files,
+interrupted writes, unsafe pointers, policy-step mismatch and nonfinite gradients.
+The native TRL constructor test also exercises real Accelerate model/optimizer/
+scheduler preparation and stepping using its reference CPU LM-head kernel.
+These establish local contracts; Qwen LoRA mapping, real vLLM sleep/wake and weight
+synchronization, H100 memory peaks and probability tolerances still require the
+separately approved compatibility smoke before a research training run.

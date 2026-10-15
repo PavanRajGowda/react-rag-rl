@@ -404,6 +404,8 @@ def test_real_trl_constructor_and_forward_wrapper_cpu(tmp_path, monkeypatch):
     from transformers import GPT2Config, GPT2LMHeadModel, PreTrainedTokenizerFast
     from trl import GRPOConfig
 
+    from grpo_training.runner import initialize_optimizer, optimizer_step
+
     class CPUReferenceKernel:
         @staticmethod
         def apply(
@@ -466,6 +468,8 @@ def test_real_trl_constructor_and_forward_wrapper_cpu(tmp_path, monkeypatch):
         train_dataset=Dataset.from_list([{"prompt": "x"}]),
     )
     trainer.current_gradient_accumulation_steps = 1
+    config = TrainingConfig(num_generations=2, questions_per_update=1, max_steps=1)
+    initialize_optimizer(trainer, config)
     inputs = {
         "prompt_ids": torch.tensor([[2]]),
         "prompt_mask": torch.tensor([[1]]),
@@ -475,5 +479,7 @@ def test_real_trl_constructor_and_forward_wrapper_cpu(tmp_path, monkeypatch):
         "num_items_in_batch": torch.tensor(2),
     }
     loss = trainer.compute_loss(model, inputs)
-    loss.backward()
+    trainer.accelerator.backward(loss)
     assert torch.isfinite(loss) and any(p.grad is not None for p in model.parameters())
+    assert math.isfinite(optimizer_step(trainer, config))
+    assert trainer.state.global_step == 1

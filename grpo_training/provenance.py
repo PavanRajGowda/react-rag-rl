@@ -66,23 +66,29 @@ def git_snapshot(root):
     }
 
 
-def build_preflight(config: TrainingConfig, train, dev, input_files=None, root=ROOT):
-    if train.split != "train" or dev.split != "dev":
-        raise ValueError("Expected separate train and dev selections")
-    train_record, dev_record = split_record(train), split_record(dev)
-    if set(train_record["question_ids"]) & set(dev_record["question_ids"]):
-        raise ValueError("Train/dev question IDs overlap")
+def training_source_hashes(root=ROOT):
+    """Shared preflight/run identity; exclude Git status and absolute paths."""
     source_paths = [
         *sorted((root / "grpo_training").glob("*.py")),
         root / "grpo_training/pyproject.toml",
         root / "grpo_training/uv.lock",
         root / "baseline_agent/prompt.py",
         root / "baseline_agent/protocol.py",
+        root / "baseline_agent/scoring.py",
     ]
-    source_hashes = {
+    return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in source_paths
     }
+
+
+def build_preflight(config: TrainingConfig, train, dev, input_files=None, root=ROOT):
+    if train.split != "train" or dev.split != "dev":
+        raise ValueError("Expected separate train and dev selections")
+    train_record, dev_record = split_record(train), split_record(dev)
+    if set(train_record["question_ids"]) & set(dev_record["question_ids"]):
+        raise ValueError("Train/dev question IDs overlap")
+    source_hashes = training_source_hashes(root)
     identity = {
         "config": config.to_dict(),
         "train": train_record,

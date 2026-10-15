@@ -627,3 +627,70 @@ with a tiny CPU model; the fused-head wrapper test substitutes a reference CPU
 kernel for CUDA-only Triton. Qwen/vLLM kernels remain unverified on GPU. This
 commit does not run a model rollout, step a production optimizer or launch Modal;
 the job loop, checkpoint/resume and cloud integration remain for later review.
+
+### GRPO review Commit 7: Modal runner and resumable checkpoints
+
+`grpo_training/runner.py` now connects collection, rewards, old-policy capture,
+replay/backward, gradient clipping, optimizer/scheduler steps and adapter exports.
+`collection.py` batches independent trajectories and allows four concurrent search
+calls while applying bounded retries to whole failed question groups.
+`checkpoints.py` saves a verified checkpoint after every successful optimizer step,
+including partially reused rollout batches. `modal_app.py` defines the H100 job,
+CPU model/search preflight, persistent volumes and an exclusive run-writer lock.
+See the technical README for the complete file/call walkthrough and recovery rules.
+
+The implementation is ready for code review; the image build, Qwen/vLLM adapter
+mapping, GPU memory behavior and numerical agreement have NOT been tested on H100.
+No paid job was launched. The commands below are for a separately approved smoke
+run after review, not evidence that GPU compatibility has passed.
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+.\.tools\uv.exe run --frozen modal run -m grpo_training.modal_app --run-id grpo-smoke-001
+```
+
+The default reviewed smoke config is 3 optimizer steps, 2 questions per update,
+4 complete trajectories per question, retrieval K=2, and one replay iteration.
+It selects the first 16 source rows from the prepared training split
+(blank questions remain skipped). The test set is not used. Console output shows
+each completed optimizer step, reward, loss, gradient norm and checkpoint name.
+The existing `finance-rag-search` deployment must be callable; a CPU preflight
+checks the expected retrieval corpus/schema before the H100 function starts.
+
+To resume an interrupted run, use the same run ID, config, source code and data
+selection:
+
+```powershell
+.\.tools\uv.exe run --frozen modal run -m grpo_training.modal_app --run-id grpo-smoke-001 --resume
+```
+
+State is stored in Modal Volume `finance-rag-grpo-runs`, under the run ID. `run.json`
+binds config, selected question/label hashes and training sources. `latest.json`
+points to a completed hash-verified checkpoint. `events/` contains timestamped
+metrics and full rollout attempts, including failed search attempts. The model
+cache is a separate volume, `finance-rag-grpo-cache`.
+
+Normal completion/failure ends a single-use GPU container. To stop a running job,
+use the actual app ID (`ap-...`) printed by Modal:
+
+```powershell
+.\.tools\uv.exe run --frozen modal app stop --yes ap-REPLACE_WITH_ACTUAL_APP_ID
+```
+
+Recovery uses the latest completed checkpoint, not an in-flight optimizer step.
+GPU OOM, malformed generation output, probability mismatch and optimizer failures
+abort; they are not treated as incorrect answers or silently retried. A hard
+termination may leave a writer lock in `finance-rag-grpo-writers`. Verify the old
+job stopped before clearing that run ID's lock; locks are never automatically
+stolen. If startup fails before any checkpoint exists, use a new run ID. A
+corrupt latest checkpoint is rejected rather than silently rolling backward.
+
+CPU checks (no Modal invocation):
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_runner.py tests/test_grpo_modal.py -q
+.\data\grpo-cpu-env\Scripts\python.exe -m pytest tests/test_grpo_advantages.py tests/test_grpo_trainer.py tests/test_grpo_checkpoints.py -q
+```
+
+The isolated CPU environment setup is in Commit 6's section above. GPU numerical
+and memory validation remains necessary before an actual research training run.
