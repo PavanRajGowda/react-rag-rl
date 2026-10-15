@@ -572,3 +572,21 @@ The backend must report the expected prompt IDs, policy ID and sampling settings
 Tests use an injected toy tokenizer and normalized toy probability model only.
 Real tokenizer/vLLM output, EOS capture and weight-sync verification remain for
 the separately reviewed Step 5. No GPU or live search is started here.
+
+### GRPO review Commit 5: model and vLLM adapters
+
+`grpo_training/model.py` loads the pinned Qwen3.5-4B checkpoint in BF16,
+freezes base weights and attaches LoRA to selected text attention/MLP projections.
+`grpo_training/vllm_backend.py` accepts batches of prepared generation requests,
+returns original sampled tokens and their logprobs, and explicitly loads exported
+adapter versions before generation. These are library functions, not a training
+entrypoint. Importing them does not allocate a GPU or download a model.
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_model_backend.py -q
+```
+
+These 22 CPU tests use mocked engines and weights. The real Linux/CUDA model
+load, Qwen3.5 LoRA mapping, adapter synchronization and memory usage remain
+unverified until a separately approved GPU smoke test. No paid job was launched.
+The GRPO loss/trainer and Modal training entrypoint remain later review steps.

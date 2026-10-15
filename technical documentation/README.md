@@ -1034,3 +1034,86 @@ blocking, context/generation failures, pending-request discipline, and preventin
 unrecorded controller advancement. GPU/cloud packages are not imported. These
 verify contracts; they do not validate real tokenizer, CUDA kernels, vLLM sampling,
 weight synchronization, gradients or actual GRPO updates.
+
+### GRPO Commit 5: model loading and vLLM boundary
+
+`grpo_training/model.py` contains the explicit GPU model loader and adapter
+transfer format. Importing this file is CPU safe: Torch, Transformers, PEFT and
+Hub imports happen only inside the loader. The loader requires Linux x86_64,
+Python 3.11 and the reviewed library versions from the isolated training lock.
+It resolves the pinned Hub snapshot, uses its local tokenizer and checkpoint,
+requires CUDA/BF16, disables remote code and rejects quantized checkpoints.
+
+The initial policy is the existing Qwen3.5-4B revision. All original parameters
+are frozen before attaching rank-16, alpha-32 LoRA with zero dropout. Targets are
+explicit text full-attention q/k/v/o projections and MLP gate/up/down projections.
+Vision, embeddings, output head and hybrid linear-attention-specific projections
+remain frozen. This conservative target choice can be expanded after compatibility
+tests. Gradient checkpointing uses the non-reentrant path; only expected LoRA A/B
+parameters may remain trainable. No optimizer or gradient update is created here.
+
+`TrainingModel` holds the loaded policy, tokenizer, snapshot path, config and
+selected module names. `export_adapter()` writes PEFT adapter weights/config and
+`transfer.json` beneath a caller-selected directory named by PolicyVersion.id.
+The manifest binds individual file hashes, combined adapter hash, optimizer step,
+model/tokenizer revision, template identity, target names and experiment config.
+Exports do not overwrite existing identities. Verification detects changed bytes,
+manifest inconsistencies and unexpected LoRA settings. These transfer files are
+not optimizer/resume checkpoints or a persistent trajectory store. Persistence
+and crash recovery remain a later step; interrupted exports fail verification.
+
+`grpo_training/vllm_backend.py` is the sampling boundary:
+
+- `create_vllm_backend()` explicitly allocates a colocated vLLM engine using the
+  same local snapshot/tokenizer and BF16, without quantization. It checks tokenizer
+  vocabulary/EOS agreement, uses spawned workers, disables image/video inputs,
+  enables sleep mode and initially uses eager execution without prefix caching.
+  Its default 30% GPU-memory utilization is provisional, pending GPU measurement.
+- `VLLMBackend.synchronize()` verifies an exported artifact and experiment identity,
+  loads it under a new positive LoRA ID, checks the engine registry, retires the
+  previous adapter and clears prefix caches. New versions require a strictly newer
+  optimizer step. Failed load acknowledgments clear the active policy and block
+  generation. Registry acknowledgment is not proof of numerical weight parity;
+  a real GPU comparison is still required. Weights are transferred as adapters,
+  without merging them into the base checkpoint.
+- `generate()` accepts multiple `GenerationRequest` objects so vLLM can schedule
+  them together. A lock prevents overlapping synchronization/sleep/generation
+  operations. Requests with stale policies, duplicate episode/turn IDs, changed
+  experiment sampling or excessive token budgets are rejected. It checks the
+  returned prompt IDs and LoRA identity for every output, and retains selected
+  token logprobs without reconstructing token IDs from text.
+- Sampling requests `processed_logprobs`, which include temperature and sampling
+  processing. The later replay/loss step must use the corresponding distribution
+  when computing ratios. Raw, unscaled policy logprobs are not interchangeable.
+  The pinned vLLM implementation documents these modes in its
+  [model config](https://github.com/vllm-project/vllm/blob/v0.22.0/vllm/config/model.py)
+  and [sampler](https://github.com/vllm-project/vllm/blob/v0.22.0/vllm/v1/sample/sampler.py).
+- String stopping includes closing search/answer tags in sampled output. The
+  existing baseline `action_complete()` still decides whether an action is done.
+  A quoted closing tag inside reasoning can stop an engine call prematurely; the
+  backend resumes with the exact sampled token prefix and remaining token budget,
+  deriving the continuation seed deterministically. This stays one controller
+  generation, with no intervening tool observation. EOS and length terminations
+  retain their own identities. Tokens after the first complete action are excluded.
+- `GenerationBatch` reports whole-batch wall time. `BackendGeneration` retains
+  tokens, logprobs, ending and engine-call count, and `record_into()` advances the
+  existing EpisodeRecorder. It does not invent per-sample timing from batch time.
+
+The intended flow is: load TrainingModel → export adapter version → create/wake
+vLLM → synchronize → prepare requests with EpisodeRecorder → generate batch →
+record outputs into their individual controllers. A later trainer will repeat
+this after optimizer updates and coordinate memory phases. This commit does not
+wire a live search client, compute advantages/GRPO loss, synchronize distributed
+workers, launch Modal, or persist run checkpoints.
+
+`tests/test_grpo_model_backend.py` provides 22 CPU cases: lazy imports, pinned
+loader arguments and base freezing, text target selection, content-addressed
+exports, tamper detection, version transitions, failed acknowledgments, sleep and
+missing adapters, batched token/probability capture, corrupt engine outputs,
+quoted-tag continuation, EOS/length endings, duplicate/stale requests, sampling
+settings and tokenizer disagreement. Fake adapter bytes are not real safetensors;
+these tests establish contracts, not CUDA/kernel/LoRA compatibility. The full CPU
+suite passes 234 tests. A separately approved GPU smoke must establish real model
+loading, PEFT-to-vLLM target mapping, changed-weight behavior, finite logprobs,
+teacher-forcing probability agreement within an explicit tolerance, and memory
+feasibility before any training run.
