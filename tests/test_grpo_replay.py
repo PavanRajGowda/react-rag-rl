@@ -20,7 +20,6 @@ from grpo_training.records import (
 from grpo_training.replay import (
     GroupRequiresRetry,
     QuestionGroup,
-    collate_replay,
     replay_rows,
 )
 from grpo_training.rollouts import EpisodeRecorder, template_digest
@@ -140,12 +139,12 @@ def test_exact_replacement_prompts_and_one_loss_target_per_sampled_token():
         "Find values." in first.generations[2].request.prompt_text
     )  # Earlier model reasoning stays.
     group = QuestionGroup((second, first))  # Sorting preserves G=2, not five turns.
-    batch = collate_replay(group, pad_token_id=0)
-    assert len(group.episodes) == 2 and len(batch["rows"]) == 5
-    assert sum(sum(mask) for mask in batch["loss_mask"]) == sum(
+    rows = replay_rows(group)
+    assert len(group.episodes) == 2 and len(rows) == 5
+    assert sum(sum(row["loss_mask"]) for row in rows) == sum(
         len(turn.completion_ids) for ep in group.episodes for turn in ep.generations
     )
-    for index, row in enumerate(batch["rows"]):
+    for row in rows:
         length = len(row["input_ids"]) - len(row["target_ids"])
         assert row["labels"][:length] == (-100,) * length
         assert row["input_ids"][-len(row["target_ids"]) :] == row["target_ids"]
@@ -155,12 +154,9 @@ def test_exact_replacement_prompts_and_one_loss_target_per_sampled_token():
         # prompt, including replacement. We do not score a stitched transcript.
         expected = toy_logprobs(row["input_ids"][:length], row["target_ids"])
         assert row["sampling_logprobs"][length:] == expected
-        assert sum(batch["attention_mask"][index]) == len(row["input_ids"])
         assert all(
             value == -100
-            for value, active in zip(
-                batch["labels"][index], batch["loss_mask"][index], strict=True
-            )
+            for value, active in zip(row["labels"], row["loss_mask"], strict=True)
             if not active
         )
     actual = first.generations[2]
@@ -334,7 +330,7 @@ def test_malformed_output_feedback_is_prompt_only_and_length_reason_is_preserved
     )
 
 
-def test_sampled_eos_is_not_masked_even_when_pad_uses_the_same_id():
+def test_sampled_eos_remains_an_active_replay_target():
     config = replace(CONFIG, max_turns=2)
     first, second = recorder(0, config=config), recorder(1, config=config)
     submit(first, SEARCH)
@@ -342,18 +338,13 @@ def test_sampled_eos_is_not_masked_even_when_pad_uses_the_same_id():
     submit(second, SEARCH)
     submit(second, ANSWER)
     group = QuestionGroup((first.finish(), second.finish()))
-    batch = collate_replay(group, pad_token_id=0)
+    rows = replay_rows(group)
     eos_row = 1
     eos_position = len(group.episodes[0].generations[1].request.prompt_ids)
-    assert batch["input_ids"][eos_row][eos_position] == 0
-    assert batch["labels"][eos_row][eos_position] == 0
-    assert (
-        batch["loss_mask"][eos_row][eos_position]
-        == batch["attention_mask"][eos_row][eos_position]
-        == 1
-    )
-    assert batch["sampling_logprobs"][eos_row][eos_position] < 0
-    assert all(value == 0 for value in batch["loss_mask"][eos_row][eos_position + 1 :])
+    assert rows[eos_row]["input_ids"][eos_position] == 0
+    assert rows[eos_row]["labels"][eos_position] == 0
+    assert rows[eos_row]["loss_mask"][eos_position] == 1
+    assert rows[eos_row]["sampling_logprobs"][eos_position] < 0
 
 
 def test_deserialization_rejects_bad_generation_order_and_false_answer_record():

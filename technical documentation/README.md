@@ -1018,16 +1018,16 @@ Review `grpo_training/records.py` first:
 - logit_positions selects the preceding-token logits for each completion target:
   if prompt length P and completion length C, positions are P-1 through P+C-2.
   Labels remain in target-token coordinates for the usual causal shift.
-- collate_replay right-pads plain Python sequences. Attention and loss masks derive
-  from lengths, not token values: sampled EOS remains active even if padding uses
-  the same ID. Sampling logprob zeros on prompt/padding positions are placeholders
-  and must be masked, never interpreted as actual environment-token probabilities.
-  No Torch tensor, loss normalization, reward broadcasting or advantage computation
-  occurs here. A group with no sampled tokens cannot produce a replay batch.
+- Replay rows are unpadded plain Python sequences. Sampling logprob zeros on
+  prompt positions are placeholders and must be masked, never interpreted as
+  actual environment-token probabilities. No Torch tensor, loss normalization,
+  reward broadcasting or advantage computation occurs here. The trainer's
+  `collate_segments()` is the sole padding/tensor collator; the unused original
+  combined-sequence collator was removed after integrating TRL.
 
 `tests/test_grpo_replay.py` has 20 CPU cases. They cover exact replacement prompts,
 old reasoning versus new targets, normalized toy teacher-forcing probability
-agreement, wrong-context disagreement, unequal-length padding, sampled EOS,
+agreement, wrong-context disagreement, unequal-length replay rows, sampled EOS,
 JSON round trips, probability/token validation, stale backend policy/prompt/
 sampling acknowledgments, missing/duplicate/mixed groups, infrastructure-group
 blocking, context/generation failures, pending-request discipline, and preventing

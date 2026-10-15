@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from grpo_training.records import EpisodeRecord, token_ids
+from grpo_training.records import EpisodeRecord
 from grpo_training.rewards import TECHNICAL_TERMINATIONS
 
 
@@ -95,37 +95,3 @@ def replay_rows(group):
                 }
             )
     return rows
-
-
-def collate_replay(group, pad_token_id):
-    """Right-pad replay inputs. Probability zeros on masked positions are fillers.
-
-    loss_mask/labels are in token-target coordinates. logit_positions select the
-    preceding-token logits for completion targets (the causal shift). No model
-    forward pass, GRPO grouping by rows, reward broadcast or loss occurs here.
-    """
-    token_ids((pad_token_id,))
-    rows = replay_rows(group)
-    if not rows:
-        raise ValueError("Group has no sampled tokens to replay")
-    width = max(len(row["input_ids"]) for row in rows)
-    batch = {
-        name: []
-        for name in (
-            "input_ids",
-            "attention_mask",
-            "loss_mask",
-            "labels",
-            "sampling_logprobs",
-        )
-    }
-    for row in rows:
-        size = len(row["input_ids"])
-        padding = width - size
-        batch["input_ids"].append(row["input_ids"] + (pad_token_id,) * padding)
-        batch["attention_mask"].append((1,) * size + (0,) * padding)
-        batch["loss_mask"].append(row["loss_mask"] + (0,) * padding)
-        batch["labels"].append(row["labels"] + (-100,) * padding)
-        batch["sampling_logprobs"].append(row["sampling_logprobs"] + (0.0,) * padding)
-    batch["rows"] = rows  # Group/episode provenance survives flattening into turns.
-    return batch
