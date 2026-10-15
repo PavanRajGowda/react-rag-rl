@@ -49,6 +49,9 @@ class TrainingConfig:
     reward: str = "number_match_0_1"
     vllm_mode: str = "colocate"
     vllm_importance_sampling_correction: bool = True
+    epsilon_low: float = 0.2
+    epsilon_high: float = 0.28
+    vllm_importance_sampling_cap: float = 2.0
 
     def __post_init__(self):
         positive_ints = (
@@ -83,6 +86,9 @@ class TrainingConfig:
             "max_grad_norm",
             "lora_dropout",
             "beta",
+            "epsilon_low",
+            "epsilon_high",
+            "vllm_importance_sampling_cap",
         ):
             value = getattr(self, name)
             if (
@@ -103,6 +109,12 @@ class TrainingConfig:
             raise ValueError("Invalid sampling, warmup, dropout or KL range")
         if self.num_generations < 2:
             raise ValueError("GRPO needs at least two episodes per question")
+        if (
+            not 0 < self.epsilon_low < 1
+            or self.epsilon_high <= 0
+            or self.vllm_importance_sampling_cap < 1
+        ):
+            raise ValueError("Invalid PPO clipping or sampling correction bounds")
         if self.max_context_tokens <= self.max_new_tokens:
             raise ValueError("Context window must leave room for the prompt")
         if self.top_k > 10 or self.max_searches > 10 or self.max_turns > 20:

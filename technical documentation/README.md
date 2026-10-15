@@ -1117,3 +1117,135 @@ suite passes 234 tests. A separately approved GPU smoke must establish real mode
 loading, PEFT-to-vLLM target mapping, changed-weight behavior, finite logprobs,
 teacher-forcing probability agreement within an explicit tolerance, and memory
 feasibility before any training run.
+
+### GRPO Commit 6: complete-episode advantages and native TRL loss bridge
+
+Read `grpo_training/advantages.py` before `trainer.py`. `prepare_update(groups,
+labels)` requires exactly questions_per_update complete QuestionGroups, one
+policy/config, unique question/group/episode IDs and train-only questions. Reward
+labels must match the question IDs exactly. A technical failure rejects the
+entire update; this layer does not silently drop peers or retry groups. Labels
+are consumed by the existing terminal Number Match scorer and are not retained
+in PreparedUpdate or passed to the model.
+
+`EpisodeSignal` stores episode/group identity, terminal 0/1 reward and advantage.
+For group g, its baseline is the arithmetic mean of all G episode rewards:
+
+```text
+A_i = (reward_i - mean_reward_g) / (sample_std_reward_g + 1e-4)
+```
+
+The group standard deviation uses Bessel correction, matching pinned TRL. The
+existing scale_rewards options also support one update-wide sample standard
+deviation (batch) or no scaling (none); centering always remains within question.
+All-correct/all-wrong groups have zero advantages and remain in the batch. A
+context-limit episode with no sampled tokens still contributes its zero outcome
+to its group's baseline, although it has no tokens to backpropagate through.
+An update with no sampled tokens is rejected explicitly.
+
+`PreparedUpdate` retains immutable episode records and learning signals. rows()
+creates fresh per-generation replay rows and broadcasts each episode's advantage
+to its turns. It does not treat turns as independent GRPO samples. token_count
+is the total number of sampled completion tokens across all turns and groups,
+including EOS and length-truncated output. Truncated output is not silently
+discarded; unfinished episodes retain the existing zero terminal reward. There
+are no extra format/retrieval/process rewards or dynamic group filtering.
+
+`grpo_training/trainer.py` provides the explicit boundary to TRL:
+
+- `validate_replay_config()` initially supports loss_type=dapo, beta=0, top_p=1
+  and zero adapter dropout. The capture path additionally rejects generation
+  top-k filtering or repetition penalties. These restrictions keep the training
+  distribution compatible with the processed sampling probabilities. Other
+  TrainingConfig values can describe future experiments, but unsupported loss
+  modes fail before this bridge executes them.
+- `create_replay_trainer()` constructs a normal GRPOTrainer subclass using the
+  already loaded policy and tokenizer. Only allowlisted train Question prompts
+  enter its dataset. Its placeholder reward callable raises if accidentally used:
+  scoring must happen on complete controller-accepted episodes. The subclass
+  blocks built-in train() and transcript generation. It inherits TRL's native
+  compute_loss, clipped objective and temperature-scaled fused forward unchanged.
+- `use_vllm=False` in GRPOConfig means TRL must not create a second sampler or
+  synchronize weights itself. The experiment still uses the Step-5 colocated
+  VLLMBackend externally. The later orchestration layer will own both components.
+  The bridge currently requires one process, TRL accumulation factor 1 and
+  steps_per_generation 1. Variable numbers of turn microbatches are accumulated
+  explicitly, rather than pretending there is a fixed number of turns per episode.
+- `capture_update(trainer, prepared, artifact, bundle)` runs before any update.
+  It checks the artifact/policy/global-step identities, verifies the trainer owns
+  the supplied TrainingModel, and re-exports current adapter bytes to ensure the
+  live training policy still matches the sampled one. Existing transfer identities
+  now also reject different experiment manifests instead of silently reusing them.
+  It switches to eval mode, teacher-forces every actual per-turn prompt/completion
+  under torch.no_grad(), and restores the preceding model mode even on failure.
+  Native TRL performs the causal shift. The saved old probabilities are finite
+  Python float tuples, with no graph or model references attached to them.
+- `CapturedUpdate` binds these old logprobs and correction vectors to PreparedUpdate.
+  It freezes nested vectors and checks token alignment and numerical bounds.
+  Per-token vLLM correction is c = min(exp(old_logprob - sampled_logprob), 2).
+  The cap is configurable; disabling correction gives c=1. Clamping the log ratio
+  before exponentiation avoids overflow. Ratios can underflow to zero for extremely
+  small probabilities. These fixed corrections account for sampling/training
+  mismatch; PPO's current/old ratio separately accounts for subsequent updates.
+- `collate_segments()` converts replay rows to TRL inputs, left-padding prompts
+  and right-padding completions. Real prompt/completion IDs are preserved. Masks
+  derive from lengths, so EOS stays active even when it equals the padding ID.
+  Prompt tokens are never completion targets, and removed search observations
+  are never reconstructed or concatenated into a different trajectory transcript.
+- `loss_microbatches()` supplies detached old logprobs, completion masks and one
+  shared whole-update token denominator. It folds c into the token advantage:
+  min(r*A, clipped_r*A)*c = min(r*(A*c), clipped_r*(A*c)) for nonnegative fixed c.
+  TRL's vLLM loss path stays off, so correction is applied exactly once. This
+  equivalence requires the guarded settings: no KL, entropy bonus, entropy-token
+  filtering, auxiliary loss, off-policy mask, two-sided ratio cap or sequence-level
+  importance ratios. Native clipping diagnostics see correction-weighted advantages;
+  those are not additional outcome rewards.
+- `backward_update()` clears preceding gradients, runs each microbatch through
+  native TRL compute_loss, and invokes Accelerator.backward. The current-policy
+  forward creates the autograd graph here. The loss uses ratio exp(current-old),
+  lower/upper clipping 1-0.2 and 1+0.28, and the shared sampled-token denominator.
+  There is no second division by the number of microbatches. Backward releases
+  each graph before processing the next turn. Any raised failure clears partial
+  gradients and propagates; it is never converted to a reward or successful step.
+
+The caller still owns optimizer creation, gradient clipping/nonfinite-gradient
+checks, optimizer/scheduler stepping, incrementing global_step, adapter export,
+vLLM sleep/wake/synchronization, rollout scheduling, checkpointing and logging.
+No production optimizer is stepped in this commit. Reusing a captured update is
+allowed for config.num_iterations optimizer steps; its old logprobs/corrections
+stay fixed. The bridge rejects reuse once global_step reaches that bound or moves
+backward. The default remains one iteration. This implements TRL's DAPO loss
+normalization, not every mechanism from the full DAPO training recipe.
+
+The intended call order is:
+
+```text
+Independent sampled episodes + separate reward labels
+  → prepare_update()             # complete-group rewards/advantages
+  → capture_update()             # fixed old logprobs, no graph
+  → backward_update()            # differentiable current forward + native TRL loss
+  → [later runner] clip gradients, optimizer.step(), scheduler.step(), global_step++
+  → [later runner] reuse within limit or export/synchronize before fresh rollouts
+```
+
+`tests/test_grpo_advantages.py` has 17 dependency-light cases covering group
+centering/scaling, unequal trajectories, zero-variance groups, zero-token context
+failures, technical failures, train-only and ID constraints, clipping config and
+lazy imports. `tests/test_grpo_trainer.py` has 18 optional CPU cases using pinned
+Torch 2.11.0+cpu, TRL 1.15.0, Transformers 5.5.4, Accelerate 1.12.0, PEFT 0.18.1
+and datasets 4.8.5 in an ignored environment under data/. They exercise the real
+TRL objective with a tiny frozen-base/two-adapter probability model: detached old
+capture versus differentiable replay, both clipping branches, exactly-once/capped
+sampling correction, unequal microbatch/full-batch gradient agreement, zero policy
+gradients for zero advantages, EOS/padding masks, changed live weights, rollout
+reuse, unsupported settings, and discarding partial gradients after failures.
+One constructor/wrapper test uses a tiny GPT-2 and a reference CPU LM-head kernel
+because TRL's actual fused kernel requires Triton/CUDA. No real Qwen model,
+Triton kernel, Elasticsearch service, vLLM engine or Modal job runs in these tests.
+The reproducible CPU environment commands are in the root README.
+
+The implementation follows the pinned
+[TRL GRPO trainer source](https://github.com/huggingface/trl/blob/v1.15.0/trl/trainer/grpo_trainer.py)
+for advantage standardization, temperature-scaled old/current probabilities,
+clipping and DAPO token normalization. GPU numerical agreement and actual training
+remain separate approval/validation steps.

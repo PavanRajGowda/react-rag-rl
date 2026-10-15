@@ -190,6 +190,13 @@ def test_export_is_content_addressed_and_idempotent(setup):
     assert artifact.verify() == artifact
 
 
+def test_same_transfer_identity_rejects_changed_experiment(setup):
+    bundle, artifact, _, _ = setup
+    bundle.config = replace(bundle.config, learning_rate=2e-5)
+    with pytest.raises(ValueError, match="different experiment"):
+        export_adapter(bundle, artifact.path.parent, 0)
+
+
 @pytest.mark.parametrize(
     "filename", ["adapter_model.safetensors", "adapter_config.json", "transfer.json"]
 )

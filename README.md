@@ -590,3 +590,40 @@ These 22 CPU tests use mocked engines and weights. The real Linux/CUDA model
 load, Qwen3.5 LoRA mapping, adapter synchronization and memory usage remain
 unverified until a separately approved GPU smoke test. No paid job was launched.
 The GRPO loss/trainer and Modal training entrypoint remain later review steps.
+
+### GRPO review Commit 6: outcome advantages and TRL replay loss
+
+`grpo_training/advantages.py` scores complete question groups and computes one
+outcome advantage per trajectory. `grpo_training/trainer.py` captures fixed
+old-policy logprobs, constructs per-turn loss inputs and accumulates gradients
+through TRL 1.15.0's native DAPO objective. Every turn inherits its trajectory's
+advantage. Normalization uses all sampled tokens in the logical update, rather
+than averaging unequal turn losses. It supports single-process replay initially.
+
+New explicit settings are `epsilon_low=0.2`, `epsilon_high=0.28`, and
+`vllm_importance_sampling_cap=2.0`. The bridge initially requires `beta=0`,
+`top_p=1`, no generation top-k/repetition penalty and zero adapter dropout.
+It keeps truncated samples and zero-variance groups; this is not the full DAPO
+recipe with dynamic sampling. Built-in `trainer.train()` is blocked because its
+ordinary transcript path would bypass our independent episode/replay contracts.
+
+```powershell
+.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_advantages.py -q
+```
+
+Real TRL/CPU autograd tests run separately so GPU/ML packages do not alter the
+root environment. To reproduce on Windows, create an ignored CPU environment:
+
+```powershell
+.\.tools\uv.exe venv data/grpo-cpu-env --python 3.11
+.\.tools\uv.exe pip install --python data/grpo-cpu-env/Scripts/python.exe torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+.\.tools\uv.exe pip install --python data/grpo-cpu-env/Scripts/python.exe trl==1.15.0 transformers==5.5.4 accelerate==1.12.0 peft==0.18.1 datasets==4.8.5 pytest
+.\data\grpo-cpu-env\Scripts\python.exe -m pytest tests/test_grpo_advantages.py tests/test_grpo_trainer.py -q
+```
+
+The root test suite intentionally skips the optional Torch/TRL test module when
+those packages are absent. Its separate tests exercise the real TRL objective
+with a tiny CPU model; the fused-head wrapper test substitutes a reference CPU
+kernel for CUDA-only Triton. Qwen/vLLM kernels remain unverified on GPU. This
+commit does not run a model rollout, step a production optimizer or launch Modal;
+the job loop, checkpoint/resume and cloud integration remain for later review.

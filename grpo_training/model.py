@@ -241,7 +241,15 @@ def export_adapter(bundle, output_root, optimizer_step):
         artifact = AdapterArtifact(staging, policy, bundle.targets).verify()
         destination = root / policy.id
         if destination.exists():
-            return AdapterArtifact(destination, policy, bundle.targets).verify()
+            existing = AdapterArtifact(destination, policy, bundle.targets).verify()
+            if (
+                json.loads((destination / "transfer.json").read_text(encoding="utf-8"))
+                != manifest
+            ):
+                raise ValueError(
+                    "Existing transfer identity belongs to a different experiment"
+                )
+            return existing
         # Rename only files created here, never move/delete an existing directory.
         destination.mkdir()
         for name in (*ADAPTER_FILES, "transfer.json"):
