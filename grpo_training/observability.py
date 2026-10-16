@@ -261,6 +261,7 @@ class RunObserver:
             "step": progress.step,
             "committed_step": progress.step,
             "max_steps": self.config.max_steps,
+            "training_config": self.config.to_dict(),
         }
         if self.previous_sampling_totals:
             self.status["dynamic_totals"] = dict(self.previous_sampling_totals)
@@ -345,6 +346,9 @@ class RunObserver:
                 round=round_index,
                 policy_step=prepared.policy.optimizer_step,
                 sampling=sampling_metrics(captured),
+                sampling_summary=self.status.get("dynamic_sampling", {})
+                if self.status.get("dynamic_sampling", {}).get("round") == round_index
+                else {},
             )
             atomic_json(path, metrics)
         self.status.update(rollout_id=self.rollout_id, fresh_rollout=fresh)

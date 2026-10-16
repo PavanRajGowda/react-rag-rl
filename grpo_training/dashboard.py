@@ -56,6 +56,14 @@ class ModalMirror:
             try:
                 index = self.download("index.json", mutable=True)
                 live = self.download("live.json", mutable=True)
+                metadata = self.root.parent / "run.json"
+                if not metadata.exists():
+                    atomic_json(
+                        metadata,
+                        json.loads(
+                            b"".join(self.volume.read_file(f"{self.run_id}/run.json"))
+                        ),
+                    )
                 for row in index["steps"]:
                     if row["step"] <= index["committed_step"]:
                         self.download(f"steps/{row['step']:08d}.json")
@@ -157,11 +165,52 @@ class Reader:
                     else None,
                 }
             )
+        live = self.file("live.json") or {}
+        config = live.get("training_config") or read(
+            self.root.parent / "run.json", {}
+        ).get("config", {})
+        all_ids = list(dict.fromkeys(s["rollout_id"] for s in steps))
+        all_rollouts = [
+            r for key in all_ids if (r := self.file(f"rollouts/{key}.json"))
+        ]
+        batches = []
+        for rollout in all_rollouts:
+            associated = [s for s in steps if s["rollout_id"] == rollout["rollout_id"]]
+            sampling = rollout.get("sampling_summary") or {}
+            if (
+                not sampling
+                and live.get("dynamic_sampling")
+                and live.get("dynamic_sampling", {}).get("round")
+                == rollout.get("round")
+            ):
+                sampling = live["dynamic_sampling"]
+            batches.append(
+                {
+                    "rollout_id": rollout["rollout_id"],
+                    "round": rollout.get("round"),
+                    "optimizer_steps": [s["step"] for s in associated],
+                    "reuse_iterations": [s.get("iteration") for s in associated],
+                    "question_ids": list(
+                        dict.fromkeys(e["id"] for e in rollout["episodes"])
+                    ),
+                    "actual_groups": len(rollout["groups"]),
+                    "actual_trajectories": len(rollout["episodes"]),
+                    "candidate_questions": sampling.get("candidate_questions"),
+                    "budget": sampling.get("budget"),
+                }
+            )
         policy = [s["policy_metrics"] for s in selected if s.get("policy_metrics")]
         episodes = [e for r in rollouts for e in r["episodes"]]
         hits = [e for e in episodes if e.get("first_hit_rank")]
         return {
-            "live": self.file("live.json"),
+            "live": live,
+            "training_config": config,
+            "batches": batches,
+            "batch_totals": {
+                "fresh_batches": len(batches),
+                "accepted_groups": sum(b["actual_groups"] for b in batches),
+                "accepted_trajectories": sum(b["actual_trajectories"] for b in batches),
+            },
             "committed_step": index["committed_step"],
             "steps": selected,
             "series": series[-500:],

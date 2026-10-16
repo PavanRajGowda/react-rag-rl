@@ -135,6 +135,34 @@ def test_reader_deduplicates_reuse_weights_loss_and_excludes_future_steps(tmp_pa
     assert snapshot["rates"]["nm"] == pair(1, 2)
 
 
+def test_batch_history_distinguishes_configured_actual_and_reused_batches(tmp_path):
+    root = tmp_path / "observability"
+    fixture_files(root)
+    atomic_json(
+        tmp_path / "run.json",
+        {
+            "config": {
+                "questions_per_update": 2,
+                "num_generations": 2,
+                "num_iterations": 2,
+            }
+        },
+    )
+    snapshot = Reader(root).snapshot(1)
+    assert snapshot["training_config"]["questions_per_update"] == 2
+    assert snapshot["batch_totals"] == {
+        "fresh_batches": 1,
+        "accepted_groups": 1,
+        "accepted_trajectories": 2,
+    }
+    batch = snapshot["batches"][0]
+    assert batch["optimizer_steps"] == [1, 2]
+    assert batch["question_ids"] == [QUESTION.id]
+    assert batch["actual_groups"] == 1  # A smaller actual batch, not the target two.
+    assert batch["candidate_questions"] is None  # Never invent missing historical data.
+    assert len(snapshot["steps"]) == 1  # Windowing does not double-count batch history.
+
+
 def test_live_api_trace_and_csv(tmp_path):
     fixture_files(tmp_path)
     with TestClient(create_app(tmp_path)) as client:
@@ -157,6 +185,9 @@ def test_remote_mirror_only_reads_new_immutable_files_and_keeps_last_good(tmp_pa
     class Volume:
         def read_file(self, path):
             calls.append(path)
+            if path == "run/run.json":
+                yield b'{"config": {"questions_per_update": 2, "num_generations": 4, "num_iterations": 2}}'
+                return
             relative = path.split("observability/", 1)[1]
             yield (tmp_path / "remote" / relative).read_bytes()
 
