@@ -1,0 +1,358 @@
+{
+  "run_id": "1a38ca9fe74b",
+  "modal_app_id": "ap-XffzEQeF4VXElpfhJ9eKbi",
+  "code_commit": "6869a9b",
+  "manifest": {
+    "config": {
+      "model_id": "Qwen/Qwen3.5-4B",
+      "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "dataset_id": "G4KMU/t2-ragbench",
+      "dataset_config": "FinQA",
+      "dataset_revision": "adf7fe1541ac37351ce1142544d8e3b43010ed92",
+      "corpus_version": "finqa-301676584646",
+      "search_schema_version": 4,
+      "gpu": "H100",
+      "dtype": "bfloat16",
+      "seed": 42,
+      "top_k": 2,
+      "max_searches": 6,
+      "max_turns": 8,
+      "max_new_tokens": 1024,
+      "max_context_tokens": 8192,
+      "context_mode": "replace",
+      "num_generations": 8,
+      "questions_per_update": 4,
+      "replay_microbatch_segments": 1,
+      "temperature": 0.2,
+      "top_p": 0.95,
+      "learning_rate": 1e-05,
+      "warmup_ratio": 0.05,
+      "max_grad_norm": 1.0,
+      "max_steps": 3,
+      "optimizer": "adamw",
+      "scheduler": "constant_with_warmup",
+      "lora_rank": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.0,
+      "gradient_checkpointing": true,
+      "loss_type": "dapo",
+      "scale_rewards": "group",
+      "beta": 0.0,
+      "num_iterations": 1,
+      "reward": "number_match_0_1",
+      "vllm_mode": "colocate",
+      "vllm_importance_sampling_correction": true,
+      "epsilon_low": 0.2,
+      "epsilon_high": 0.28,
+      "vllm_importance_sampling_cap": 2.0,
+      "max_trajectory_attempts": 2,
+      "max_consecutive_empty_batches": 3,
+      "reference_probe_questions": 4,
+      "dynamic_sampling": false,
+      "dynamic_sampling_multiplier": 4
+    },
+    "concurrency": 8,
+    "question_ids": [
+      "finqa_test_0",
+      "finqa_test_1",
+      "finqa_test_2",
+      "finqa_test_3",
+      "finqa_test_4",
+      "finqa_test_5",
+      "finqa_test_6",
+      "finqa_test_7",
+      "finqa_test_8",
+      "finqa_test_9",
+      "finqa_test_10",
+      "finqa_test_11",
+      "finqa_test_12",
+      "finqa_test_13",
+      "finqa_test_14",
+      "finqa_test_15",
+      "finqa_test_16",
+      "finqa_test_17",
+      "finqa_test_18",
+      "finqa_test_19"
+    ],
+    "precisions": [
+      "bf16",
+      "fp8"
+    ],
+    "training_updates": 0
+  },
+  "summary": {
+    "bf16": {
+      "complete": true,
+      "questions": 20,
+      "number_match": 0.65,
+      "wall_seconds": 254.68422551700002,
+      "questions_per_hour": 282.70302117786264,
+      "generation_tokens_per_second": 42.71918658221065,
+      "generation_wave_seconds": 222.8038678050002,
+      "initialization_seconds": 341.51357241899996,
+      "timing_definition": "arm wall time excludes model/engine initialization and warmup; wave times counted once"
+    },
+    "fp8": {
+      "complete": true,
+      "questions": 20,
+      "number_match": 0.75,
+      "wall_seconds": 225.23819461699998,
+      "questions_per_hour": 319.66159257505325,
+      "generation_tokens_per_second": 52.90011892460254,
+      "generation_wave_seconds": 189.94286221400012,
+      "initialization_seconds": 335.625793714,
+      "timing_definition": "arm wall time excludes model/engine initialization and warmup; wave times counted once"
+    }
+  },
+  "details": {
+    "bf16": {
+      "generated_tokens": 9518,
+      "input_tokens": 134372,
+      "generation_turns": 62,
+      "searches": 40,
+      "statuses": {
+        "turn_limit": 1,
+        "answered": 16,
+        "search_limit": 3
+      },
+      "generation_waves": [
+        {
+          "requests": 8,
+          "seconds": 23.571557985000027,
+          "generated_tokens": 1214
+        },
+        {
+          "requests": 8,
+          "seconds": 14.455683859000032,
+          "generated_tokens": 1465
+        },
+        {
+          "requests": 1,
+          "seconds": 5.786884327999985,
+          "generated_tokens": 96
+        },
+        {
+          "requests": 8,
+          "seconds": 10.77734620000001,
+          "generated_tokens": 1057
+        },
+        {
+          "requests": 8,
+          "seconds": 24.01590534500002,
+          "generated_tokens": 1479
+        },
+        {
+          "requests": 2,
+          "seconds": 12.322770054999978,
+          "generated_tokens": 318
+        },
+        {
+          "requests": 2,
+          "seconds": 10.759298124000054,
+          "generated_tokens": 302
+        },
+        {
+          "requests": 2,
+          "seconds": 10.710500324000009,
+          "generated_tokens": 302
+        },
+        {
+          "requests": 2,
+          "seconds": 11.958930468000005,
+          "generated_tokens": 301
+        },
+        {
+          "requests": 2,
+          "seconds": 13.308804204000012,
+          "generated_tokens": 302
+        },
+        {
+          "requests": 4,
+          "seconds": 9.230529764000039,
+          "generated_tokens": 483
+        },
+        {
+          "requests": 4,
+          "seconds": 11.466572199999973,
+          "generated_tokens": 620
+        },
+        {
+          "requests": 2,
+          "seconds": 10.889260939999986,
+          "generated_tokens": 286
+        },
+        {
+          "requests": 2,
+          "seconds": 11.633723551000003,
+          "generated_tokens": 320
+        },
+        {
+          "requests": 2,
+          "seconds": 10.199904156999992,
+          "generated_tokens": 253
+        },
+        {
+          "requests": 2,
+          "seconds": 9.973157556000046,
+          "generated_tokens": 264
+        },
+        {
+          "requests": 2,
+          "seconds": 13.30113351500006,
+          "generated_tokens": 332
+        },
+        {
+          "requests": 1,
+          "seconds": 8.441905229999975,
+          "generated_tokens": 124
+        }
+      ]
+    },
+    "fp8": {
+      "generated_tokens": 10048,
+      "input_tokens": 136227,
+      "generation_turns": 62,
+      "searches": 33,
+      "statuses": {
+        "turn_limit": 1,
+        "answered": 18,
+        "search_limit": 1
+      },
+      "generation_waves": [
+        {
+          "requests": 8,
+          "seconds": 22.338967888999946,
+          "generated_tokens": 1207
+        },
+        {
+          "requests": 8,
+          "seconds": 12.695684524,
+          "generated_tokens": 1492
+        },
+        {
+          "requests": 2,
+          "seconds": 6.245597731000032,
+          "generated_tokens": 234
+        },
+        {
+          "requests": 1,
+          "seconds": 12.512021613000002,
+          "generated_tokens": 265
+        },
+        {
+          "requests": 8,
+          "seconds": 9.78978602899997,
+          "generated_tokens": 1150
+        },
+        {
+          "requests": 8,
+          "seconds": 10.883477131999996,
+          "generated_tokens": 1321
+        },
+        {
+          "requests": 2,
+          "seconds": 8.773301838000009,
+          "generated_tokens": 340
+        },
+        {
+          "requests": 2,
+          "seconds": 9.65484950199999,
+          "generated_tokens": 359
+        },
+        {
+          "requests": 2,
+          "seconds": 13.791671322000013,
+          "generated_tokens": 448
+        },
+        {
+          "requests": 2,
+          "seconds": 9.067294414999992,
+          "generated_tokens": 345
+        },
+        {
+          "requests": 1,
+          "seconds": 7.630436323000026,
+          "generated_tokens": 165
+        },
+        {
+          "requests": 4,
+          "seconds": 7.375878643999954,
+          "generated_tokens": 485
+        },
+        {
+          "requests": 4,
+          "seconds": 8.639818091000052,
+          "generated_tokens": 642
+        },
+        {
+          "requests": 2,
+          "seconds": 9.581790983000019,
+          "generated_tokens": 335
+        },
+        {
+          "requests": 2,
+          "seconds": 9.393383203000099,
+          "generated_tokens": 337
+        },
+        {
+          "requests": 2,
+          "seconds": 7.815002654000068,
+          "generated_tokens": 311
+        },
+        {
+          "requests": 2,
+          "seconds": 8.07643463699992,
+          "generated_tokens": 290
+        },
+        {
+          "requests": 1,
+          "seconds": 7.888685645999999,
+          "generated_tokens": 161
+        },
+        {
+          "requests": 1,
+          "seconds": 7.788780038000027,
+          "generated_tokens": 161
+        }
+      ]
+    }
+  },
+  "policies": {
+    "bf16": {
+      "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "tokenizer_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "adapter_sha256": "3a84f7be18bfc4de132dbaeb669bb16a93576d3ca9b3494ebd6861b6614c9039",
+      "optimizer_step": 0,
+      "template_sha256": "8e24bd09f69439c4d27f561a51fb77419a086dd1af719b2a1f72cf4550c4a044"
+    },
+    "fp8": {
+      "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "tokenizer_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "adapter_sha256": "69f36cfb9063a14c0faceb077669dfdc4d7b39eafd891c0f3f8cd8159fb3b2ad",
+      "optimizer_step": 0,
+      "template_sha256": "8e24bd09f69439c4d27f561a51fb77419a086dd1af719b2a1f72cf4550c4a044"
+    }
+  },
+  "adapter_note": "Fresh default-initialized PEFT LoRA in both arms, zero optimizer updates. Artifact byte hashes differ; identical artifact bytes were not verified. Default LoRA B initialization is zero.",
+  "observed_vllm_model_loading_gib": {
+    "bf16": 8.06,
+    "fp8": 4.84
+  },
+  "observed_fp8_kernel": "CutlassFP8ScaledMMLinearKernel for Fp8OnlineLinearMethod; Modal run logs",
+  "speed_ratios": {
+    "generation_fp8_over_bf16": 1.2383222424612244,
+    "questions_per_hour_fp8_over_bf16": 1.1307328490626145,
+    "wall_time_reduction": 0.11561780412675982
+  },
+  "paired_answers": {
+    "lost_correct": 0,
+    "gained_correct": 2
+  },
+  "caveats": [
+    "Single run of 20 convenience-sampled test questions, not a quality significance claim.",
+    "Eight concurrent agents; barrier per chunk; eager execution; prefix cache disabled.",
+    "No training or quantized sampler/BF16 replay probability-agreement validation.",
+    "Eight-token warmup excludes initial startup; residual shape-specific compilation effects are possible.",
+    "Different trajectories and search counts can affect end-to-end speed."
+  ]
+}
