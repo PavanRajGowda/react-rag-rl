@@ -13,6 +13,20 @@ from grpo_training.records import GenerationRecord, generation_seed, token_ids
 from grpo_training.rollouts import template_digest
 
 
+class TrajectoryGenerationError(ValueError):
+    """One response is unusable; unrelated requests remain valid."""
+
+
+@dataclass(frozen=True)
+class BackendFailure:
+    request: object
+    error: Exception
+    raw_token_count: int = 0
+
+    def record_into(self, recorder, tokenizer):
+        recorder.fail_generation(self.request, self.error)
+
+
 @dataclass(frozen=True)
 class BackendGeneration:
     request: object
@@ -36,7 +50,7 @@ class BackendGeneration:
 
 @dataclass(frozen=True)
 class GenerationBatch:
-    generations: tuple[BackendGeneration, ...]
+    generations: tuple[BackendGeneration | BackendFailure, ...]
     seconds: float  # Whole batch wall time, not fabricated per-sample timing.
 
 
@@ -158,13 +172,11 @@ class VLLMBackend:
         )
 
     def _extract(self, result, prompt, limit):
-        if (
-            tuple(result.prompt_token_ids or ()) != tuple(prompt)
-            or not result.finished
-            or len(result.outputs) != 1
-        ):
-            raise ValueError(
-                "vLLM returned a changed prompt or incomplete/multiple outputs"
+        if tuple(result.prompt_token_ids or ()) != tuple(prompt):
+            raise ValueError("vLLM returned a changed prompt")
+        if not result.finished or not result.outputs or len(result.outputs) != 1:
+            raise TrajectoryGenerationError(
+                "vLLM returned incomplete/multiple outputs for one request"
             )
         lora = result.lora_request
         if lora is None or (lora.lora_int_id, lora.lora_name, lora.lora_path) != (
@@ -174,27 +186,39 @@ class VLLMBackend:
         ):
             raise ValueError("vLLM output does not acknowledge the loaded adapter")
         output = result.outputs[0]
-        ids = token_ids(output.token_ids)
-        if (
-            len(ids) > limit
-            or output.logprobs is None
-            or len(output.logprobs) != len(ids)
-        ):
-            raise ValueError("Missing/oversized sampled tokens or probability vector")
-        probabilities = []
-        for token, values in zip(ids, output.logprobs, strict=True):
-            if token not in values:
-                raise ValueError("Sampled-token logprob is missing; never invent one")
-            value = values[token].logprob
+        try:
+            try:
+                ids = token_ids(output.token_ids)
+            except (ValueError, TypeError) as exc:
+                raise TrajectoryGenerationError(str(exc)) from exc
             if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(value)
-                or value > 0
+                len(ids) > limit
+                or output.logprobs is None
+                or len(output.logprobs) != len(ids)
             ):
-                raise ValueError("Invalid sampled-token logprob")
-            probabilities.append(float(value))
-        return ids, tuple(probabilities), output
+                raise TrajectoryGenerationError(
+                    "Missing/oversized sampled tokens or probability vector"
+                )
+            probabilities = []
+            for token, values in zip(ids, output.logprobs, strict=True):
+                if token not in values:
+                    raise TrajectoryGenerationError(
+                        "Sampled-token logprob is missing; never invent one"
+                    )
+                value = values[token].logprob
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    or value > 0
+                ):
+                    raise TrajectoryGenerationError("Invalid sampled-token logprob")
+                probabilities.append(float(value))
+            return ids, tuple(probabilities), output
+        except (TypeError, AttributeError, KeyError, IndexError) as exc:
+            raise TrajectoryGenerationError(
+                f"Malformed per-request completion: {exc}"
+            ) from exc
 
     def generate(self, requests):
         requests = tuple(requests)
@@ -252,11 +276,23 @@ class VLLMBackend:
                 ):
                     state, request = states[index], requests[index]
                     before = len(state["ids"])
-                    ids, probabilities, output = self._extract(
-                        result,
-                        prompt["prompt_token_ids"],
-                        self.config.max_new_tokens - before,
-                    )
+                    try:
+                        ids, probabilities, output = self._extract(
+                            result,
+                            prompt["prompt_token_ids"],
+                            self.config.max_new_tokens - before,
+                        )
+                    except TrajectoryGenerationError as exc:
+                        state["error"] = exc
+                        raw = getattr(result, "outputs", ()) or ()
+                        state["failed_token_count"] = len(state["ids"]) + sum(
+                            len(out.token_ids)
+                            for out in raw
+                            if isinstance(
+                                getattr(out, "token_ids", None), (list, tuple)
+                            )
+                        )
+                        continue
                     state["ids"] += ids
                     state["probs"] += probabilities
                     state["segments"] += 1
@@ -297,13 +333,22 @@ class VLLMBackend:
                                 "generated_tokens": len(state["ids"]),
                                 "engine_segments": state["segments"],
                             }
-                            raise ValueError(
+                            state["error"] = TrajectoryGenerationError(
                                 "Unrecognized stop or omitted sampled EOS token: "
                                 + json.dumps(details, sort_keys=True)
                             )
                 pending = again
             generations = []
             for request, state in zip(requests, states, strict=True):
+                if state.get("error") is not None:
+                    generations.append(
+                        BackendFailure(
+                            request,
+                            state["error"],
+                            state.get("failed_token_count", len(state["ids"])),
+                        )
+                    )
+                    continue
                 # Reuse record-level checks without re-encoding any sampled text.
                 GenerationRecord(
                     request,

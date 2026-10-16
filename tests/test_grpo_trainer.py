@@ -483,3 +483,24 @@ def test_real_trl_constructor_and_forward_wrapper_cpu(tmp_path, monkeypatch):
     assert torch.isfinite(loss) and any(p.grad is not None for p in model.parameters())
     assert math.isfinite(optimizer_step(trainer, config))
     assert trainer.state.global_step == 1
+
+
+def test_partial_complete_group_batch_matches_original_native_gradients(
+    setup, tmp_path
+):
+    trainer, prepared, artifact, bundle = setup
+    original = capture_update(trainer, prepared, artifact, bundle)
+    expected_loss = backward_update(trainer, original)
+    expected_grads = [p.grad.clone() for p in trainer.model.parameters()]
+    # Nominally request two groups, but only one survived technical recovery.
+    bundle.config = replace(bundle.config, questions_per_update=2)
+    artifact = export_adapter(bundle, tmp_path / "partial-adapters", 0)
+    group = make_group(bundle.config, policy=artifact.policy)
+    partial = prepare_update([group], [label(group)])
+    actual = capture_update(trainer, partial, artifact, bundle)
+    assert actual.prepared.token_count == original.prepared.token_count
+    assert backward_update(trainer, actual) == pytest.approx(expected_loss, abs=1e-6)
+    for parameter, expected in zip(
+        trainer.model.parameters(), expected_grads, strict=True
+    ):
+        torch.testing.assert_close(parameter.grad, expected, atol=1e-6, rtol=1e-5)

@@ -249,3 +249,23 @@ def test_large_peft_target_list_exports_exact_reviewed_names(tmp_path):
     saved = json.loads((artifact.path / "adapter_config.json").read_text())
     assert set(saved["target_modules"]) == set(targets)
     assert artifact.verify() is artifact
+
+
+def test_partial_batch_pending_reuse_and_empty_counter_roundtrip(tmp_path):
+    config = TrainingConfig(num_generations=2, questions_per_update=2, num_iterations=2)
+    trainer, bundle = make_training(tmp_path, config)
+    train = inputs(config)
+    store = RunStore(tmp_path / "partial-runs", "partial", run_identity(config, train))
+    artifact = export_adapter(bundle, store.root / "transfers", 0)
+    group = make_group(config, policy=artifact.policy)
+    prepared = prepare_update([group], [label(group)])
+    values = tuple((-2.0,) * len(r["target_ids"]) for r in prepared.rows())
+    pending = CapturedUpdate(prepared, values, tuple((1.0,) * len(v) for v in values))
+    update(trainer, config)
+    artifact = export_adapter(bundle, store.root / "transfers", 1)
+    store.save(trainer, artifact, Progress(1, 2, 1, 1), pending)
+    progress, restored, _ = store.restore(trainer, bundle, train.labels)
+    assert len(restored.prepared.groups) == 1 and restored == pending
+    store.save(trainer, artifact, Progress(1, 2, 2, 0, 2))
+    progress, restored, _ = store.restore(trainer, bundle, train.labels)
+    assert progress.consecutive_empty_batches == 2 and restored is None

@@ -4,12 +4,12 @@ import math
 import time
 from dataclasses import asdict, replace
 
-from grpo_training.advantages import prepare_update
 from grpo_training.checkpoints import Progress, restore_rng
 from grpo_training.collection import collect_groups
 from grpo_training.data import PreparedSplit
 from grpo_training.model import export_adapter
 from grpo_training.provenance import split_record, training_source_hashes
+from grpo_training.recovery import probability_report, recover_probability_capture
 from grpo_training.rewards import episode_reward
 from grpo_training.trainer import (
     backward_update,
@@ -75,19 +75,7 @@ def optimizer_step(trainer, config):
 
 
 def probability_agreement(captured):
-    differences = [
-        abs(old - sampled)
-        for row, values in zip(
-            captured.prepared.rows(), captured.old_logprobs, strict=True
-        )
-        for old, sampled in zip(
-            values, row["sampling_logprobs"][-len(values) :], strict=True
-        )
-    ]
-    return {
-        "mean_absolute_logprob_difference": sum(differences) / len(differences),
-        "max_absolute_logprob_difference": max(differences),
-    }
+    return probability_report(captured)
 
 
 def run_training(
@@ -101,7 +89,7 @@ def run_training(
     progress=None,
     pending=None,
     rng=None,
-    group_attempts=2,
+    group_attempts=None,
     search_workers=4,
     mean_logprob_tolerance=0.1,
     max_logprob_tolerance=1.0,
@@ -131,6 +119,10 @@ def run_training(
         or progress.cursor >= len(train.questions)
     ):
         raise ValueError("Invalid resume step/data cursor")
+    if group_attempts is not None and (
+        type(group_attempts) is not int or not 1 <= group_attempts <= 3
+    ):
+        raise ValueError("Trajectory attempts must be an integer from one to three")
     if (pending is None) != (progress.iteration == 0):
         raise ValueError("Invalid pending-reuse state")
     if any(
@@ -200,36 +192,88 @@ def run_training(
                 )
                 backend.sleep()
                 awake = False
-                prepared = prepare_update(groups, labels)
-                observer.phase("old_policy_capture", step=progress.step)
-                pending = capture_fn(trainer, prepared, artifact, bundle)
-                observer.rollout(pending, fresh=True, round_index=progress.round_index)
-                agreement = probability_agreement(pending)
-                store.audit(
-                    {
-                        "kind": "rollout_captured",
-                        "step": progress.step,
-                        "round": progress.round_index,
-                        "seconds": time.perf_counter() - started,
-                        "tokens": prepared.token_count,
-                        **agreement,
-                    }
-                )
-                # Fail before the first update if the real backends disagree too far.
-                if (
-                    agreement["mean_absolute_logprob_difference"]
-                    > mean_logprob_tolerance
-                    or agreement["max_absolute_logprob_difference"]
-                    > max_logprob_tolerance
+
+                def regenerate(
+                    affected_questions,
+                    retained,
+                    current_artifact=artifact,
+                    current_round=progress.round_index,
                 ):
-                    raise RuntimeError(
-                        "Sampling/replay probability agreement exceeded configured tolerances"
-                    )
+                    nonlocal awake
+                    release_memory()
+                    backend.wake_up()
+                    awake = True
+                    backend.synchronize(current_artifact)
+                    try:
+                        return collect_fn(
+                            affected_questions,
+                            config,
+                            current_artifact.policy,
+                            backend,
+                            bundle.tokenizer,
+                            search,
+                            current_round,
+                            group_attempts=1,
+                            search_workers=search_workers,
+                            audit=audit,
+                            retained_episodes=retained,
+                            retry_round=config.max_trajectory_attempts
+                            if group_attempts is None
+                            else group_attempts,
+                        )
+                    finally:
+                        backend.sleep()
+                        awake = False
+
+                pending = recover_probability_capture(
+                    groups,
+                    labels,
+                    trainer=trainer,
+                    artifact=artifact,
+                    bundle=bundle,
+                    capture=capture_fn,
+                    regenerate=regenerate,
+                    audit=audit,
+                    phase=observer.phase,
+                    round_index=progress.round_index,
+                    mean_limit=mean_logprob_tolerance,
+                    max_limit=max_logprob_tolerance,
+                )
                 progress = replace(
                     progress,
                     cursor=(progress.cursor + config.questions_per_update)
                     % len(train.questions),
                     round_index=progress.round_index + 1,
+                    consecutive_empty_batches=progress.consecutive_empty_batches + 1
+                    if pending is None
+                    else 0,
+                )
+                if pending is None:
+                    store.audit(
+                        {
+                            "kind": "batch_skipped",
+                            "reason": "no_complete_trustworthy_groups",
+                            "round": progress.round_index - 1,
+                            "step": progress.step,
+                            "consecutive_empty_batches": progress.consecutive_empty_batches,
+                        }
+                    )
+                    store.save(trainer, artifact, progress)
+                    observer.phase(
+                        "batch_skipped",
+                        step=progress.step,
+                        consecutive_empty_batches=progress.consecutive_empty_batches,
+                    )
+                    if (
+                        progress.consecutive_empty_batches
+                        >= config.max_consecutive_empty_batches
+                    ):
+                        raise RuntimeError(
+                            "Repeated empty batches exhausted recovery circuit breaker; inspect trajectory/probability agreement failures"
+                        )
+                    continue
+                observer.rollout(
+                    pending, fresh=True, round_index=progress.round_index - 1
                 )
             started = time.perf_counter()
             observer.phase("backward", step=progress.step + 1)
@@ -260,6 +304,8 @@ def run_training(
                 "gradient_norm": grad_norm,
                 "mean_reward": sum(s.reward for s in signals) / len(signals),
                 "zero_advantage_episodes": sum(s.advantage == 0 for s in signals),
+                "groups": len(pending.prepared.groups),
+                "episodes": len(signals),
                 "tokens": pending.prepared.token_count,
                 "seconds": time.perf_counter() - started,
                 "backward_seconds": backward_seconds,

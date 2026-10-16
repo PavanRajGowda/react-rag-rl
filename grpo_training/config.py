@@ -52,6 +52,8 @@ class TrainingConfig:
     epsilon_low: float = 0.2
     epsilon_high: float = 0.28
     vllm_importance_sampling_cap: float = 2.0
+    max_trajectory_attempts: int = 2
+    max_consecutive_empty_batches: int = 3
     reference_probe_questions: int = 4
 
     def __post_init__(self):
@@ -69,6 +71,8 @@ class TrainingConfig:
             "num_iterations",
             "num_generations",
             "reference_probe_questions",
+            "max_trajectory_attempts",
+            "max_consecutive_empty_batches",
             "top_k",
         )
         for name in positive_ints:
@@ -109,6 +113,8 @@ class TrainingConfig:
             or self.beta < 0
         ):
             raise ValueError("Invalid sampling, warmup, dropout or KL range")
+        if self.max_trajectory_attempts > 3 or self.max_consecutive_empty_batches > 10:
+            raise ValueError("Recovery attempt/circuit-breaker limits are too large")
         if self.num_generations < 2:
             raise ValueError("GRPO needs at least two episodes per question")
         if (

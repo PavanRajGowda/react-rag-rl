@@ -16,7 +16,7 @@ from grpo_training.model import (
     trainable_names,
 )
 from grpo_training.records import GenerationRequest, SamplingParameters
-from grpo_training.vllm_backend import VLLMBackend, create_vllm_backend
+from grpo_training.vllm_backend import BackendFailure, VLLMBackend, create_vllm_backend
 
 CONFIG = TrainingConfig()
 TARGETS = (
@@ -294,8 +294,13 @@ def test_corrupted_engine_output_is_rejected(setup, corruption):
         return output
 
     engine.reply = reply
-    with pytest.raises(ValueError):
-        backend.generate([request(artifact)])
+    if corruption in ("probability", "empty"):
+        failure = backend.generate([request(artifact)]).generations[0]
+        assert isinstance(failure, BackendFailure)
+        assert isinstance(failure.error, ValueError)
+    else:
+        with pytest.raises(ValueError):
+            backend.generate([request(artifact)])
 
 
 def test_quoted_closing_tag_resumes_same_generation(setup):
@@ -408,6 +413,7 @@ def test_loader_pins_snapshot_and_freezes_base_model(tmp_path, monkeypatch):
 
     class TrainModel(Model):
         config = NS(use_cache=True)
+
         def __init__(self):
             super().__init__()
             self.peft_config = {"default": NS(target_modules={"down_proj", "q_proj"})}
@@ -517,9 +523,10 @@ def test_unrecognized_stop_preserves_diagnostics_without_inventing_eos(setup, st
     engine.reply = lambda prompts, kw: [
         result(prompts[0], kw["lora_request"], "x", reason="stop", stop=stop)
     ]
-    with pytest.raises(ValueError, match="Unrecognized stop") as error:
-        backend.generate([request(artifact)])
-    details = json.loads(str(error.value).split(": ", 1)[1])
+    failure = backend.generate([request(artifact)]).generations[0]
+    assert isinstance(failure, BackendFailure)
+    assert "Unrecognized stop" in str(failure.error)
+    details = json.loads(str(failure.error).split(": ", 1)[1])
     assert details["episode_id"] == "episode-0"
     assert details["turn"] == 1
     assert details["finish_reason"] == "stop"
@@ -527,3 +534,41 @@ def test_unrecognized_stop_preserves_diagnostics_without_inventing_eos(setup, st
     assert details["tail_token_ids"] == [120]
     assert details["expected_eos_token_ids"] == [0]
     assert details["generated_tokens"] == 1
+
+
+def test_one_response_failure_keeps_other_batch_generation(setup):
+    _, artifact, engine, backend = setup
+
+    def reply(prompts, kw):
+        results = normal_reply(prompts, kw)
+        results[0].outputs[0].logprobs[0] = {}
+        return results
+
+    engine.reply = reply
+    batch = backend.generate([request(artifact, 0), request(artifact, 1)])
+    assert isinstance(batch.generations[0], BackendFailure)
+    assert batch.generations[0].raw_token_count > 0
+    assert batch.generations[1].finish_reason == "action"
+    assert batch.generations[1].request == request(artifact, 1)
+
+
+@pytest.mark.parametrize("kind", ["unfinished", "multiple", "logprob_shape"])
+def test_malformed_single_response_does_not_discard_valid_sibling(setup, kind):
+    _, artifact, engine, backend = setup
+
+    def reply(prompts, kwargs):
+        results = normal_reply(prompts, kwargs)
+        if kind == "unfinished":
+            results[0].finished = False
+        elif kind == "multiple":
+            results[0].outputs *= 2
+        else:
+            results[0].outputs[0].logprobs = [None] * len(
+                results[0].outputs[0].token_ids
+            )
+        return results
+
+    engine.reply = reply
+    batch = backend.generate([request(artifact, 0), request(artifact, 1)])
+    assert isinstance(batch.generations[0], BackendFailure)
+    assert batch.generations[1].finish_reason == "action"

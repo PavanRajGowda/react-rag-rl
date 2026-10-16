@@ -180,6 +180,25 @@ class RunObserver:
                 purge_step=trainer.state.global_step + 1,
             )
         self.writer, self.status = writer, {}
+        previous_live = self.root / "live.json"
+        self.recovery_counts = (
+            json.loads(previous_live.read_text(encoding="utf-8")).get("recovery", {})
+            if previous_live.exists()
+            else {}
+        )
+        self.recovery_counts = (
+            dict.fromkeys(
+                (
+                    "failed_trajectory_attempts",
+                    "replacement_trajectories",
+                    "dropped_groups",
+                    "probability_recovery_attempts",
+                    "skipped_empty_batches",
+                ),
+                0,
+            )
+            | self.recovery_counts
+        )
         self.last_commit, self.rollout_id = 0.0, None
         self.closed = False
         self.start_step = trainer.state.global_step
@@ -202,7 +221,11 @@ class RunObserver:
         atomic_json(self.root / "index.json", self.index)
         atomic_json(
             self.root / "live.json",
-            self.status | {"updated_at_utc": datetime.now(UTC).isoformat()},
+            self.status
+            | {
+                "updated_at_utc": datetime.now(UTC).isoformat(),
+                "recovery": self.recovery_counts,
+            },
         )
         if force or time.monotonic() - self.last_commit >= 5:
             self.writer.flush()
@@ -237,6 +260,20 @@ class RunObserver:
 
     def event(self, event):
         kind = event["kind"]
+        increments = {
+            "trajectory_failed": ("failed_trajectory_attempts", 1),
+            "trajectory_retry_started": (
+                "replacement_trajectories",
+                event.get("trajectories", 0),
+            ),
+            "group_dropped": ("dropped_groups", 1),
+            "probability_recovery": ("probability_recovery_attempts", 1),
+            "batch_skipped": ("skipped_empty_batches", 1),
+        }
+        if kind in increments:
+            key, increment = increments[kind]
+            self.recovery_counts[key] = self.recovery_counts.get(key, 0) + increment
+            self.status["last_recovery_event"] = event
         if kind == "generation_batch":
             self.status["last_generation_batch"] = {
                 k: v for k, v in event.items() if k != "kind"
@@ -344,6 +381,7 @@ class RunObserver:
             "gpu": gpu_memory(),
             "loss_timing": "pre-update",
             "reference_timing": "post-update",
+            "recovery_counts": dict(self.recovery_counts),
         }
         atomic_json(self.root / "steps" / f"{step:08d}.json", record)
         self.index["steps"] = [r for r in self.index["steps"] if r["step"] != step] + [
@@ -367,6 +405,8 @@ class RunObserver:
             int(record["gradient_norm"] > self.config.max_grad_norm),
             step,
         )
+        for key, count in self.recovery_counts.items():
+            self.writer.add_scalar(f"recovery/{key}", count, step)
         loss = record.get("policy_metrics")
         if loss:
             for key in (

@@ -53,8 +53,8 @@ def prepare_update(groups, labels):
     if not groups or any(type(g) is not QuestionGroup for g in groups):
         raise TypeError("Expected complete QuestionGroups")
     config, policy = groups[0].episodes[0].config, groups[0].episodes[0].policy
-    if len(groups) != config.questions_per_update:
-        raise ValueError("Update must contain exactly questions_per_update groups")
+    if not 1 <= len(groups) <= config.questions_per_update:
+        raise ValueError("Update must contain 1..questions_per_update complete groups")
     if len({g.episodes[0].group_id for g in groups}) != len(groups) or len(
         {g.episodes[0].question.id for g in groups}
     ) != len(groups):

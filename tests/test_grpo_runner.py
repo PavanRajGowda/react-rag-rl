@@ -199,7 +199,8 @@ def test_bad_probability_agreement_refuses_update(tmp_path):
             store,
             **(kwargs | {"capture_fn": mismatch}),
         )
-    assert [p.step for p, _ in store.saved] == [0]
+    assert [p.step for p, _ in store.saved] == [0, 0, 0, 0]
+    assert store.saved[-1][0].consecutive_empty_batches == 3
     assert "backward" not in trace and trainer.state.global_step == 0
 
 
@@ -275,7 +276,7 @@ class ScriptedBackend:
         return GenerationBatch(tuple(items), 0.01)
 
 
-def test_collection_batches_turns_and_retries_whole_failed_question(monkeypatch):
+def test_collection_batches_turns_and_retries_only_failed_trajectory(monkeypatch):
     import grpo_training.collection as module
 
     config = TrainingConfig(num_generations=2, questions_per_update=2)
@@ -293,7 +294,7 @@ def test_collection_batches_turns_and_retries_whole_failed_question(monkeypatch)
     )
 
     def search(payload):
-        if "finqa_train_0-attempt-0" in payload["query"]:
+        if "finqa_train_0-attempt-0-sample-0-retry-0" in payload["query"]:
             raise TimeoutError("search unavailable")
         return {
             "status": "ok",
@@ -323,16 +324,16 @@ def test_collection_batches_turns_and_retries_whole_failed_question(monkeypatch)
     assert all(
         g.scorable and all(e.status == "answered" for e in g.episodes) for g in groups
     )
-    assert "attempt-1" in groups[0].episodes[0].group_id
+    assert "retry-1" in groups[0].episodes[0].episode_id
+    assert "retry-0" in groups[0].episodes[1].episode_id
     assert "attempt-0" in groups[1].episodes[0].group_id
-    assert backend.batch_sizes == [4, 2, 2, 2]
+    assert backend.batch_sizes == [4, 3, 1, 1]
     assert sum(e["kind"] == "rollout_attempt" for e in events) == 2
     assert "gold_answer" not in str(events)
 
 
 def test_collection_stops_after_bounded_search_failures(monkeypatch):
     import grpo_training.collection as module
-    from grpo_training.replay import GroupRequiresRetry
 
     config = TrainingConfig(num_generations=2, questions_per_update=1)
     train, tokenizer = inputs(config), ToyTokenizer()
@@ -351,9 +352,22 @@ def test_collection_stops_after_bounded_search_failures(monkeypatch):
         raise TimeoutError("down")
 
     backend = ScriptedBackend(tokenizer)
-    with pytest.raises(GroupRequiresRetry):
-        collect_groups(train.questions[:1], config, policy, backend, tokenizer, fail, 0)
+    events = []
+    assert (
+        collect_groups(
+            train.questions[:1],
+            config,
+            policy,
+            backend,
+            tokenizer,
+            fail,
+            0,
+            audit=events.append,
+        )
+        == ()
+    )
     assert backend.batch_sizes == [2, 2]
+    assert sum(e["kind"] == "group_dropped" for e in events) == 1
 
 
 def test_collection_generation_exception_is_not_retried():

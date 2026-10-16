@@ -1628,3 +1628,96 @@ CPU regression coverage verifies retrieval variation with identical answer rewar
 produces zero advantages, eligibility for no-search groups, seeded selection and
 label alignment. Source identity changes require a new run ID; do not resume an
 older experiment under this new code.
+
+### Recovery review: preserve valid trajectories and complete groups
+
+This section supersedes Commit 7's whole-group technical retry and whole-run
+probability-guard behavior. The answer-only reward, masks, clipping objective,
+importance correction cap and probability tolerance values are unchanged.
+No GPU launch, automatic resume or migration of the stopped step-18 run occurred
+while implementing these changes.
+
+The review identified three avoidable sources of lost work: search failures
+regenerated healthy peers, one malformed engine completion could discard other
+responses, and one probability outlier aborted the whole run. The exact nominal
+question-group count also prevented using a smaller otherwise valid batch.
+
+| Check/failure | New scope and action | Why |
+|---|---|---|
+| Search infrastructure failure after existing transport retries | Replace only that trajectory, retaining healthy peers and unrelated groups | A technical fault is not a reward-zero model outcome |
+| Empty/malformed sampled token/logprob vector or unexpected stop | vLLM returns BackendFailure for that request while preserving other returned generations | Do not fabricate tokens/probabilities or discard valid siblings |
+| Sampling/replay probability mismatch | Localize by episode; retain all healthy peers, regenerate only flagged trajectories once, then drop only groups still failing | An outlier is not automatically evidence that every request is corrupt |
+| One group cannot fill all G slots after bounded attempts | Log/drop that group and train with surviving complete groups | Keep GRPO sample count G within each group; allow actual B smaller than requested |
+| No usable groups or no sampled tokens | Log/skip, checkpoint cursor and empty-batch count, leave optimizer/scheduler untouched | No valid gradient exists, but the next questions may work |
+| Repeated empty batches | Stop after configured consecutive-empty limit (default 3) | Bound costs of a persistent service/backend failure |
+| Wrong answer, malformed model search, exhausted search/turn/context budget | Keep defined model outcome; no technical retry based on reward | Avoid selecting only correct/easy model behavior |
+| Stale/mixed policy, adapter hash/acknowledgment mismatch, changed prompt/membership, corrupt checkpoint | Still fatal | Provenance or which policy generated the data is untrustworthy |
+| Shared engine/CUDA failure, OOM, nonfinite replay/loss/gradients, optimizer failure | Still fatal, preserve last completed checkpoint | Do not continue with potentially unhealthy or partially mutated training state |
+| Invalid config, unsupported loss/runtime, wrong dataset revision, token alignment violation | Still fatal | These are setup/correctness invariants, not ordinary sampling outcomes |
+
+`collection.py` now stores healthy trajectories by question/sample slot. Group IDs
+remain stable across replacements; each replacement has a new episode ID and
+seed. max_trajectory_attempts defaults to 2 (original plus one replacement) and is
+bounded at 3. The legacy group_attempts keyword remains accepted but now controls
+attempts per missing trajectory. Probability recovery has one additional bounded
+replacement stage; its seed round starts beyond the collection-attempt rounds,
+so it cannot repeat a discarded sample's seed. Healthy trajectories are reused
+only at the same acknowledged policy version; no optimizer runs between their
+collection and reuse. Technical replacement conditions can affect sampling;
+all attempts and their costs remain observable rather than claiming unbiasedness.
+
+Each terminal trajectory is audited immediately, including its exact generation
+records and controller history. A later shared-engine failure therefore does not
+erase already completed raw records. Raw trajectory_completed and rollout_attempt
+events can contain the same completed episode: deduplicate by episode_id when
+analyzing episodes; generation_batch events are the measured engine-cost source.
+Malformed engine responses count their returned token IDs for cost reporting even
+though those IDs are not accepted as a trainable GenerationRecord.
+
+`recovery.py` reports aggregate and per-episode logprob differences plus up to
+20 worst outlier tokens (episode, turn, target position, token ID, sampled/old
+logprobs). Mean 0.1 and maximum 1.0 thresholds now determine affected episodes,
+not immediate job termination. The normal collection retry preserves successful
+peers. If probability recovery still fails, only affected question groups are
+removed. Valid cached old probabilities/correction vectors are retained; reward
+advantages (including optional batch std) and the token denominator are rebuilt
+from the surviving groups. Removing a group never truncates its peers into a
+smaller-G GRPO group.
+
+`advantages.prepare_update` accepts 1..questions_per_update complete groups.
+Native TRL DAPO still receives the actual surviving generated-token count, so
+missing groups do not dilute the gradient by nominal batch size. Replaying
+retained per-turn rows preserves prompt/information/padding masks. Fully empty
+updates never invoke backward, optimizer or scheduler. Progress checkpoints add
+consecutive_empty_batches; partial-batch pending rollout reuse remains restorable.
+A skipped batch can create another checkpoint at the same optimizer step with a
+new cursor/round. Runtime targets max_steps successful updates: skipped empty
+batches can require extra collection rounds and cycle a fixed selected train pool.
+Report attempted rounds, actual group/episode counts and unique question IDs,
+rather than assuming nominal steps imply exactly that many fresh questions.
+
+The dashboard/live JSON, raw step files and TensorBoard expose failed trajectory
+attempts, replacement trajectories, dropped groups, probability-recovery stages,
+skipped empty batches and actual groups/episodes per update. Failed technical
+attempts never become reward-zero training examples. A dropped group's healthy
+peers remain in raw audit data but are not counted as accepted training groups.
+The collection display during retry describes that attempt, not an invented
+percentage of the entire optimizer step.
+
+Tests inject a one-sample search failure, a malformed vLLM response with healthy
+siblings, persistent one-group failure, recoverable/persistent probability
+outliers, and an empty batch followed by recovery. They check peer identity,
+fresh replacement seeds, correct denominators, unchanged outcome rewards,
+no optimizer advancement on skips and the persistent-failure circuit breaker.
+Real CPU TRL gradients for a surviving complete group match the original
+single-group gradient; real PEFT/optimizer checkpoints restore partial-batch
+pending reuse and empty-batch progress. CUDA recovery behavior is not established
+by these CPU tests. These changes do not silently bypass the stopped pilot's
+source-identity checks; using new code with its step-18 checkpoint requires a
+separately reviewed continuation/migration, not ordinary --resume.
+
+Additional per-request payload checks (incomplete/multiple completions and
+malformed logprob entries) are also scoped to the response, retaining healthy
+siblings. Prompt/adapter identity or overall batch membership corruption remains
+fatal. Final CPU verification includes 54 native ML tests, with a real-gradient
+partial-batch equivalence test and a partial checkpoint/circuit-counter round trip.

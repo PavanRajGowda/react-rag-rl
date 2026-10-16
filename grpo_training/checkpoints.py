@@ -33,6 +33,7 @@ class Progress:
     cursor: int = 0
     round_index: int = 0
     iteration: int = 0
+    consecutive_empty_batches: int = 0
 
     def __post_init__(self):
         if any(type(v) is not int or v < 0 for v in asdict(self).values()):
