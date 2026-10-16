@@ -360,7 +360,8 @@ def test_duplicate_or_changed_sampling_requests_rejected(setup):
         )
 
 
-def test_factory_uses_reviewed_runtime_settings(setup, monkeypatch):
+@pytest.mark.parametrize("quantization", [None, "fp8"])
+def test_factory_uses_reviewed_runtime_settings(setup, monkeypatch, quantization):
     import grpo_training.vllm_backend as module
 
     bundle, _, _, _ = setup
@@ -373,10 +374,10 @@ def test_factory_uses_reviewed_runtime_settings(setup, monkeypatch):
     monkeypatch.setattr(module, "check_runtime", lambda: None)
     monkeypatch.setitem(sys.modules, "vllm", NS(LLM=factory))
     monkeypatch.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-    backend = create_vllm_backend(bundle)
+    backend = create_vllm_backend(bundle, quantization=quantization)
     assert backend.policy is None
     assert captured["model"] == str(bundle.snapshot)
-    assert captured["dtype"] == "bfloat16" and captured["quantization"] is None
+    assert captured["dtype"] == "bfloat16" and captured["quantization"] == quantization
     assert captured["logprobs_mode"] == "processed_logprobs"
     assert captured["enable_sleep_mode"] and captured["enforce_eager"]
     assert captured["enable_prefix_caching"] is False

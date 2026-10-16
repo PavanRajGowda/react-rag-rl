@@ -369,9 +369,11 @@ class VLLMBackend:
             return GenerationBatch(tuple(generations), time.perf_counter() - started)
 
 
-def create_vllm_backend(bundle, gpu_memory_utilization=0.3):
+def create_vllm_backend(bundle, gpu_memory_utilization=0.3, *, quantization=None):
     """Explicit GPU operation. No server, distributed setup or automatic launch."""
     check_runtime()
+    if quantization not in (None, "fp8"):
+        raise ValueError("Only BF16 or experimental FP8 inference is supported")
     if (
         isinstance(gpu_memory_utilization, bool)
         or not isinstance(gpu_memory_utilization, (int, float))
@@ -389,7 +391,7 @@ def create_vllm_backend(bundle, gpu_memory_utilization=0.3):
         model=str(bundle.snapshot),
         tokenizer=str(bundle.snapshot),
         dtype="bfloat16",
-        quantization=None,
+        quantization=quantization,
         trust_remote_code=False,
         tensor_parallel_size=1,
         max_model_len=bundle.config.max_context_tokens,
