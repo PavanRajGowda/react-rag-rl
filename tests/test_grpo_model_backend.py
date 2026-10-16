@@ -361,7 +361,10 @@ def test_duplicate_or_changed_sampling_requests_rejected(setup):
 
 
 @pytest.mark.parametrize("quantization", [None, "fp8"])
-def test_factory_uses_reviewed_runtime_settings(setup, monkeypatch, quantization):
+@pytest.mark.parametrize("prefix_caching", [False, True])
+def test_factory_uses_reviewed_runtime_settings(
+    setup, monkeypatch, quantization, prefix_caching
+):
     import grpo_training.vllm_backend as module
 
     bundle, _, _, _ = setup
@@ -374,14 +377,32 @@ def test_factory_uses_reviewed_runtime_settings(setup, monkeypatch, quantization
     monkeypatch.setattr(module, "check_runtime", lambda: None)
     monkeypatch.setitem(sys.modules, "vllm", NS(LLM=factory))
     monkeypatch.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-    backend = create_vllm_backend(bundle, quantization=quantization)
+    backend = create_vllm_backend(
+        bundle, quantization=quantization, enable_prefix_caching=prefix_caching
+    )
     assert backend.policy is None
     assert captured["model"] == str(bundle.snapshot)
     assert captured["dtype"] == "bfloat16" and captured["quantization"] == quantization
     assert captured["logprobs_mode"] == "processed_logprobs"
     assert captured["enable_sleep_mode"] and captured["enforce_eager"]
-    assert captured["enable_prefix_caching"] is False
+    assert captured["enable_prefix_caching"] is prefix_caching
     assert captured["limit_mm_per_prompt"] == {"image": 0, "video": 0}
+
+
+def test_generation_preserves_prefix_hit_counters(setup):
+    _, artifact, engine, backend = setup
+
+    def reply(prompts, kwargs):
+        outputs = normal_reply(prompts, kwargs)
+        outputs[0].num_cached_tokens = 1
+        return outputs
+
+    engine.reply = reply
+    batch = backend.generate([request(artifact), request(artifact, 1)])
+    assert len(batch.generations) == 2
+    assert batch.cache_stats[0]["cached_tokens"] == 1
+    assert batch.cache_stats[0]["prompt_tokens"] == 2
+    assert batch.cache_stats[1]["cached_tokens"] is None
 
 
 def test_factory_rejects_tokenizer_disagreement(setup, monkeypatch):

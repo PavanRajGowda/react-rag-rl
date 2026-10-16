@@ -52,6 +52,7 @@ class BackendGeneration:
 class GenerationBatch:
     generations: tuple[BackendGeneration | BackendFailure, ...]
     seconds: float  # Whole batch wall time, not fabricated per-sample timing.
+    cache_stats: tuple[dict, ...] = ()  # Diagnostic engine-request counts only.
 
 
 class VLLMBackend:
@@ -247,6 +248,7 @@ class VLLMBackend:
                 {"ids": (), "probs": (), "segments": 0, "done": None} for _ in requests
             ]
             started = time.perf_counter()
+            cache_stats = []
             pending = list(range(len(requests)))
             while pending:
                 prompts, parameters = [], []
@@ -274,6 +276,18 @@ class VLLMBackend:
                 for index, result, prompt in zip(
                     pending, results, prompts, strict=True
                 ):
+                    cached = getattr(result, "num_cached_tokens", None)
+                    size = len(prompt["prompt_token_ids"])
+                    cache_stats.append(
+                        {
+                            "episode_id": requests[index].episode_id,
+                            "turn": requests[index].turn,
+                            "prompt_tokens": size,
+                            "cached_tokens": cached
+                            if type(cached) is int and 0 <= cached <= size
+                            else None,
+                        }
+                    )
                     state, request = states[index], requests[index]
                     before = len(state["ids"])
                     try:
@@ -366,14 +380,24 @@ class VLLMBackend:
                         state["segments"],
                     )
                 )
-            return GenerationBatch(tuple(generations), time.perf_counter() - started)
+            return GenerationBatch(
+                tuple(generations), time.perf_counter() - started, tuple(cache_stats)
+            )
 
 
-def create_vllm_backend(bundle, gpu_memory_utilization=0.3, *, quantization=None):
+def create_vllm_backend(
+    bundle,
+    gpu_memory_utilization=0.3,
+    *,
+    quantization=None,
+    enable_prefix_caching=False,
+):
     """Explicit GPU operation. No server, distributed setup or automatic launch."""
     check_runtime()
     if quantization not in (None, "fp8"):
         raise ValueError("Only BF16 or experimental FP8 inference is supported")
+    if type(enable_prefix_caching) is not bool:
+        raise ValueError("enable_prefix_caching must be a boolean")
     if (
         isinstance(gpu_memory_utilization, bool)
         or not isinstance(gpu_memory_utilization, (int, float))
@@ -402,7 +426,7 @@ def create_vllm_backend(bundle, gpu_memory_utilization=0.3, *, quantization=None
         max_cpu_loras=2,
         enable_sleep_mode=True,
         enforce_eager=True,
-        enable_prefix_caching=False,
+        enable_prefix_caching=enable_prefix_caching,
         generation_config="vllm",
         logprobs_mode="processed_logprobs",
         limit_mm_per_prompt={"image": 0, "video": 0},
