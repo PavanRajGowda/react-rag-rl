@@ -191,6 +191,8 @@ def main(
     run_id: str,
     config_path: str = "grpo_training/configs/smoke.json",
     train_count: int = 16,
+    train_sample_size: int = 0,
+    train_sample_seed: int = 42,
     resume: bool = False,
 ):
     """Explicit paid execution command, to be run only after GPU smoke approval."""
@@ -202,9 +204,34 @@ def main(
         json.loads(Path(config_path).read_text(encoding="utf-8"))
     )
     train, _, _ = load_local_splits(
-        ROOT / "data/finqa", config, train_count=train_count, dev_count=1
+        ROOT / "data/finqa",
+        config,
+        train_count=None if train_sample_size else train_count,
+        dev_count=1,
     )
+    if train_sample_size:
+        from grpo_training.data import sample_training_questions
+
+        train = sample_training_questions(train, train_sample_size, train_sample_seed)
+        if (
+            config.max_steps * config.questions_per_update
+            > len(train.questions) * config.num_iterations
+        ):
+            raise ValueError(
+                "Random-subset pilot would repeat questions; increase sample size"
+            )
     identity = run_identity(config, train)
+    print(
+        json.dumps(
+            {
+                "reward": config.reward,
+                "temperature": config.temperature,
+                "subset_seed": train_sample_seed if train_sample_size else None,
+                "selected_question_ids": [q.id for q in train.questions],
+            },
+            indent=2,
+        )
+    )
     from grpo_training.metrics import reference_catalog
 
     catalog = reference_catalog(

@@ -1567,3 +1567,64 @@ Tests cover stop_reason=None and an unexpected integer token. This is a diagnost
 improvement, not a claim that the runtime mismatch is fixed. GPU app
 ap-Bz9LiqCdWwU7TijB6xGEB9 was confirmed stopped with zero tasks. No automatic
 retry was launched; temperature 2.0 did not yield usable financial trajectories.
+
+### Answer-only diversity pilot: 25 updates / 50 groups
+
+`configs/pilot-50-questions.json` keeps Number Match as the ONLY training reward,
+group-standardized advantages, temperature 1.0, G=4 trajectories, B=2 questions,
+and one update per fresh rollout. max_steps=25 gives 50 distinct question groups
+and 200 trajectories. No composite reward implementation or reward coefficients
+are included in this change. The reward, advantage and trainer implementations
+are unchanged. Retrieval/quality features are post-rollout diagnostics only.
+
+`data.sample_training_questions` uses a local random.Random(seed) to sample without
+replacement from nonblank train questions, preserving aligned separate labels and
+original question IDs/source indices. It does not consume global RNG state or
+choose questions based on rewards. `modal_app.main --train-sample-size 50
+--train-sample-seed 42` loads the full pinned local training split, selects the
+fixed subset, prints IDs, and binds selected question/label hashes in run.json.
+A guard rejects a requested random-subset run that would cycle through questions.
+No dev/test questions are sampled. Dataset questions/labels remain unchanged.
+The selection is saved locally in data/grpo/selections/pilot-50-seed42.json.
+
+`metrics.group_retrieval_metrics` computes all existing retrieval/oversearching
+counts within each question group: first-search hit, ever/active, later recovery,
+first-hit MRR/search/generation medians and repeat/no-new/after-hit rates. These
+use the same eligible denominators as baseline diagnostics. The active rate is
+conditional on answer turns with known context presence, not all trajectories.
+
+`metrics.group_quality_metrics` adds per-trajectory metric distributions within
+a group, including n, mean, sample std, min/max and a varies flag. Reference-ever,
+reference-active, first-search hit, search count, per-trajectory repeated-request,
+repeated-set/no-new/after-hit fractions and first-hit search/rank diagnostics are
+observations, not rewards. No-search fractions are undefined and excluded rather
+than zero. Hit-only metrics exclude misses. A group's varies flag means at least
+two eligible trajectories have different values. Aggregate variation rates divide
+by groups with at least two eligible observations for that metric. Counts/rates
+pooled across searches remain separate from means of per-trajectory fractions.
+
+Groups also store distinct accepted answer strings, distinct parsed numeric values
+(Yes/No map to 1/0; trailing zeros collapse; scales and rounding remain distinct),
+missing-answer count, distinct complete generated-text sequences, answer-reward
+variation and nonzero-advantage count. None of this changes answer reward. The UI
+exposes per-group rates and the fraction of eligible groups with metric variation.
+Groups CSV includes nested full distributions and counts, not just display values.
+Select Entire run to see all 50 groups; the default summary window is 20 steps.
+
+50 groups provide an exploratory estimate at G=4 and this sampling temperature,
+not a precise universal conclusion. Policy weights can change during training;
+inspect early/late batches separately. A frozen-policy diagnostic is needed for
+a controlled estimate of initial-model diversity. Do not infer substantive answer
+variation solely from distinct decimal strings or infer a good future reward
+solely from high metric variance.
+
+Launch command (paid H100 run):
+
+```powershell
+.\.tools\uv.exe run --frozen modal run -m grpo_training.modal_app --config-path grpo_training/configs/pilot-50-questions.json --train-sample-size 50 --train-sample-seed 42 --run-id grpo-pilot-005-answer-only
+```
+
+CPU regression coverage verifies retrieval variation with identical answer rewards
+produces zero advantages, eligibility for no-search groups, seeded selection and
+label alignment. Source identity changes require a new run ID; do not resume an
+older experiment under this new code.

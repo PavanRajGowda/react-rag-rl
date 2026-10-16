@@ -3,7 +3,8 @@
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+import random
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from baseline_agent.prompt import messages
@@ -23,7 +24,9 @@ class Question:
 class RewardLabel:
     id: str
     gold_answer: str
-    gold_context_id: str  # Diagnostics only, not a retrieval argument.
+    gold_context_id: (
+        str  # Training reward/diagnostics only; never a retrieval argument.
+    )
 
 
 @dataclass(frozen=True)
@@ -151,3 +154,30 @@ def load_local_splits(corpus_dir, config, train_count=None, dev_count=None):
         "labels_sha256": hashlib.sha256(label_bytes).hexdigest(),
     }
     return train, dev, hashes
+
+
+def sample_training_questions(prepared, count, seed):
+    """Seeded sampling without replacement; labels travel only in their own tuple."""
+    if (
+        prepared.split != "train"
+        or type(count) is not int
+        or not 1 <= count <= len(prepared.questions)
+    ):
+        raise ValueError("Sampling requires a valid nonempty train-only subset")
+    if type(seed) is not int or not 0 <= seed < 2**32:
+        raise ValueError("Invalid subset seed")
+    if len(prepared.questions) != len(prepared.labels):
+        raise ValueError("Question/label lengths disagree")
+    if any(
+        q.id != label.id
+        for q, label in zip(prepared.questions, prepared.labels, strict=True)
+    ):
+        raise ValueError("Question/label order disagrees")
+    indices = random.Random(seed).sample(range(len(prepared.questions)), count)
+    return replace(
+        prepared,
+        questions=tuple(prepared.questions[i] for i in indices),
+        labels=tuple(prepared.labels[i] for i in indices),
+        skipped_blank_ids=(),
+        selected_source_count=count,
+    )

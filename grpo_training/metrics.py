@@ -1,5 +1,6 @@
 """Pure training diagnostics and mergeable numerators/denominators."""
 
+import hashlib
 import json
 import math
 import statistics
@@ -8,7 +9,7 @@ from dataclasses import asdict
 
 from baseline_agent.diagnostics import diagnose
 from baseline_agent.retrieval_diagnostics import annotate_retrieval
-from baseline_agent.scoring import score_answer
+from baseline_agent.scoring import extract_numeric_value, score_answer
 
 
 def distribution(values):
@@ -99,6 +100,9 @@ def episode_diagnostic(episode, label, reference_metadata=None):
     trace = annotate_retrieval(trace, label.gold_context_id)
     diagnostic = diagnose(trace, reference_metadata)
     diagnostic.update(
+        output_sha256=hashlib.sha256(
+            json.dumps([g.completion_text for g in episode.generations]).encode()
+        ).hexdigest(),
         episode_id=episode.episode_id,
         group_id=episode.group_id,
         sample_index=episode.sample_index,
@@ -143,23 +147,53 @@ def rollout_metrics(prepared, labels, reference_catalog=None):
         attempts = sum(r["format_attempts"].get(kind, 0) for r in episodes)
         failures = sum(r["format_failures"].get(kind, 0) for r in episodes)
         rates[f"format_{kind}"] = pair(attempts - failures, attempts)
+    by_episode = {row["episode_id"]: row for row in episodes}
     groups = []
     signals = {s.episode_id: s for s in prepared.signals}
     for group in prepared.groups:
         rewards = [signals[e.episode_id].reward for e in group.episodes]
+        rows = [by_episode[e.episode_id] for e in group.episodes]
+        answer_rewards = [float(r["nm"] or 0) for r in rows]
+        answers = [r["answer"] for r in rows if r["answer"] is not None]
+        numeric_answers = {extract_numeric_value(a) for a in answers} - {None}
         groups.append(
             {
                 "group_id": group.episodes[0].group_id,
                 "question_id": group.episodes[0].question.id,
                 "reward": distribution(rewards),
-                "all_correct": all(r == 1 for r in rewards),
-                "all_wrong": all(r == 0 for r in rewards),
+                "answer_reward": distribution(answer_rewards),
+                "all_correct": all(r == 1 for r in answer_rewards),
+                "all_wrong": all(r == 0 for r in answer_rewards),
+                "answer_learning_signal": len(set(answer_rewards)) > 1,
+                "nonzero_advantage": pair(
+                    sum(signals[e.episode_id].advantage != 0 for e in group.episodes),
+                    len(rows),
+                ),
+                "answer_diversity": {
+                    "samples": len(rows),
+                    "accepted_answers": len(answers),
+                    "missing_answers": len(rows) - len(answers),
+                    "distinct_answer_strings": len(set(answers)),
+                    "distinct_numeric_values": len(numeric_answers),
+                    "distinct_full_outputs": len({r["output_sha256"] for r in rows}),
+                },
+                "quality_metrics": group_quality_metrics(rows),
+                "retrieval": group_retrieval_metrics(rows),
                 "learning_signal": len(set(rewards)) > 1,
             }
         )
     rates["groups_with_signal"] = pair(
         sum(g["learning_signal"] for g in groups), len(groups)
     )
+    rates["groups_with_answer_signal"] = pair(
+        sum(g["answer_learning_signal"] for g in groups), len(groups)
+    )
+    for key in groups[0]["quality_metrics"]:
+        eligible_groups = [g for g in groups if g["quality_metrics"][key]["n"] >= 2]
+        rates[f"groups_with_variation_{key}"] = pair(
+            sum(g["quality_metrics"][key]["varies"] for g in eligible_groups),
+            len(eligible_groups),
+        )
     matrix = {
         f"{evidence}_{outcome}": 0
         for evidence in ("retrieved", "not_retrieved", "unknown")
@@ -253,3 +287,83 @@ def reference_catalog(path, context_ids):
                     k: doc[k] for k in ("company_id", "report_year")
                 }
     return result
+
+
+def group_retrieval_metrics(rows):
+    searches = sum(r["searches"] for r in rows)
+    hits = [r for r in rows if r["first_hit_search"] is not None]
+    misses = [r for r in rows if r["searches"] and r["first_hit_search"] != 1]
+    result = {
+        "first_search_hit": pair(
+            sum(r["first_hit_search"] == 1 for r in rows), len(rows)
+        ),
+        "later_search_recovery": pair(
+            sum(r["first_hit_search"] is not None for r in misses), len(misses)
+        ),
+        "searches_to_hit": distribution(r["first_hit_search"] for r in hits),
+        "generations_to_hit": distribution(
+            r["first_hit_turn"] for r in hits if r["first_hit_turn"] is not None
+        ),
+        "first_hit_reciprocal_rank": pair(
+            sum(1 / r["first_hit_rank"] for r in hits), len(hits)
+        ),
+        "searches": distribution(r["searches"] for r in rows),
+    }
+    for key in ("ever", "active"):
+        eligible = [r for r in rows if r[key] is not None]
+        result[key] = pair(sum(bool(r[key]) for r in eligible), len(eligible))
+    for key in (
+        "repeated_requests",
+        "repeated_sets",
+        "no_new_context",
+        "searches_after_hit",
+    ):
+        result[key] = pair(sum(r[key] for r in rows), searches)
+    return result
+
+
+def group_quality_metrics(rows):
+    """Candidate metric distributions only; never used by reward/advantages/loss."""
+    values = {
+        key: []
+        for key in (
+            "reference_ever",
+            "reference_active",
+            "first_search_hit",
+            "searches",
+            "repeated_request_fraction",
+            "repeated_set_fraction",
+            "no_new_context_fraction",
+            "searches_after_hit_fraction",
+            "first_hit_search",
+            "first_hit_generation",
+            "later_search_recovery",
+            "first_hit_reciprocal_rank",
+        )
+    }
+    for row in rows:
+        for key, source in (("reference_ever", "ever"), ("reference_active", "active")):
+            if row[source] is not None:
+                values[key].append(float(row[source]))
+        values["first_search_hit"].append(float(row["first_hit_search"] == 1))
+        values["searches"].append(row["searches"])
+        for key, source in (
+            ("repeated_request_fraction", "repeated_requests"),
+            ("repeated_set_fraction", "repeated_sets"),
+            ("no_new_context_fraction", "no_new_context"),
+            ("searches_after_hit_fraction", "searches_after_hit"),
+        ):
+            if row["searches"]:
+                values[key].append(row[source] / row["searches"])
+        if row["searches"] and row["first_hit_search"] != 1:
+            values["later_search_recovery"].append(
+                float(row["first_hit_search"] is not None)
+            )
+        if row["first_hit_search"] is not None:
+            if row["first_hit_turn"] is not None:
+                values["first_hit_generation"].append(row["first_hit_turn"])
+            values["first_hit_search"].append(row["first_hit_search"])
+            values["first_hit_reciprocal_rank"].append(1 / row["first_hit_rank"])
+    return {
+        key: distribution(v) | {"varies": len(set(v)) > 1} for key, v in values.items()
+    }
