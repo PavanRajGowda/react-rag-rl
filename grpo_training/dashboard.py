@@ -39,7 +39,7 @@ class ModalMirror:
 
     def download(self, name, *, mutable=False):
         if not re.fullmatch(
-            r"(?:index|live)\.json|(?:steps|reference)/[0-9]{8}\.json|(?:rollouts|traces)/[0-9a-f]{24}\.json",
+            r"(?:index|live)\.json|(?:steps|reference|validation)/[0-9]{8}\.json|(?:rollouts|traces)/[0-9a-f]{24}\.json",
             name,
         ):
             raise ValueError("Invalid mirror path")
@@ -63,6 +63,8 @@ class ModalMirror:
                 for step in index["references"]:
                     if step <= index["committed_step"]:
                         self.download(f"reference/{step:08d}.json")
+                for step in index.get("validation", []):
+                    self.download(f"validation/{step:08d}.json", mutable=True)
                 if live.get("rollout_id"):
                     self.download(f"rollouts/{live['rollout_id']}.json")
                 # Event files are append-only; re-fetch only files whose size changed.
@@ -144,6 +146,11 @@ class Reader:
                     "step": step["step"],
                     "loss": step["loss"],
                     "gradient_norm": step["gradient_norm"],
+                    "entropy": (step.get("policy_metrics") or {})
+                    .get("entropy_nats", {})
+                    .get("mean"),
+                    "mean_reward": step.get("mean_reward"),
+                    "iteration": step.get("iteration"),
                     "rolling_loss": (cumulative_loss[i + 1] - cumulative_loss[first])
                     / count
                     if count
@@ -159,6 +166,11 @@ class Reader:
             "steps": selected,
             "series": series[-500:],
             "reference": reference,
+            "validation": [
+                read(p)
+                for p in sorted((self.root / "validation").glob("*.json"))
+                if int(p.stem) <= index["committed_step"]
+            ],
             "rates": rates,
             "rollouts": len(rollouts),
             "episodes": episodes[-episode_limit:] if episode_limit else episodes,

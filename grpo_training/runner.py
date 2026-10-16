@@ -189,6 +189,11 @@ def run_training(
                     store.root,
                 )
                 store.audit({"kind": "validation", **result})
+                if hasattr(observer, "index"):
+                    observer.index["validation"] = sorted(
+                        set(observer.index.get("validation", [])) | {progress.step}
+                    )
+                    observer.publish(force=True)
             finally:
                 backend.sleep()
                 awake = False
