@@ -259,6 +259,24 @@ class RunObserver:
         self.phase("ready")
 
     def event(self, event):
+        if event["kind"] == "dynamic_sampling":
+            self.status["dynamic_sampling"] = event
+        if event["kind"] == "dynamic_group":
+            totals = self.status.setdefault(
+                "dynamic_totals",
+                {
+                    "groups": 0,
+                    "accepted": 0,
+                    "episodes": 0,
+                    "correct": 0,
+                    "generated_tokens": 0,
+                },
+            )
+            totals["groups"] += 1
+            totals["accepted"] += int(event["accepted"])
+            for key in ("episodes", "correct", "generated_tokens"):
+                totals[key] += event[key]
+
         kind = event["kind"]
         increments = {
             "trajectory_failed": ("failed_trajectory_attempts", 1),

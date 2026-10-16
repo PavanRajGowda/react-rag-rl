@@ -55,6 +55,8 @@ class TrainingConfig:
     max_trajectory_attempts: int = 2
     max_consecutive_empty_batches: int = 3
     reference_probe_questions: int = 4
+    dynamic_sampling: bool = False
+    dynamic_sampling_multiplier: int = 4
 
     def __post_init__(self):
         positive_ints = (
@@ -71,6 +73,7 @@ class TrainingConfig:
             "num_iterations",
             "num_generations",
             "reference_probe_questions",
+            "dynamic_sampling_multiplier",
             "max_trajectory_attempts",
             "max_consecutive_empty_batches",
             "top_k",
@@ -79,9 +82,15 @@ class TrainingConfig:
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        if self.dynamic_sampling_multiplier > 10:
+            raise ValueError("Dynamic sampling budget multiplier cannot exceed ten")
         if type(self.seed) is not int or not 0 <= self.seed < 2**32:
             raise ValueError("seed must be an integer in [0, 2**32)")
-        for name in ("gradient_checkpointing", "vllm_importance_sampling_correction"):
+        for name in (
+            "gradient_checkpointing",
+            "vllm_importance_sampling_correction",
+            "dynamic_sampling",
+        ):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean")
         for name in (

@@ -219,18 +219,37 @@ def run_training(
                     store.audit(event)
                     observer.event(event)
 
-                groups = collect_fn(
-                    questions,
-                    config,
-                    artifact.policy,
-                    backend,
-                    bundle.tokenizer,
-                    search,
-                    progress.round_index,
-                    group_attempts=group_attempts,
-                    search_workers=search_workers,
-                    audit=audit,
-                )
+                consumed = config.questions_per_update
+                if config.dynamic_sampling:
+                    from grpo_training.sampling import collect_dynamic
+
+                    groups, labels, consumed = collect_dynamic(
+                        train,
+                        progress.cursor,
+                        config,
+                        artifact.policy,
+                        backend,
+                        bundle.tokenizer,
+                        search,
+                        progress.round_index,
+                        collect=collect_fn,
+                        audit=audit,
+                        group_attempts=group_attempts,
+                        search_workers=search_workers,
+                    )
+                else:
+                    groups = collect_fn(
+                        questions,
+                        config,
+                        artifact.policy,
+                        backend,
+                        bundle.tokenizer,
+                        search,
+                        progress.round_index,
+                        group_attempts=group_attempts,
+                        search_workers=search_workers,
+                        audit=audit,
+                    )
                 backend.sleep()
                 awake = False
 
@@ -280,10 +299,20 @@ def run_training(
                     mean_limit=mean_logprob_tolerance,
                     max_limit=max_logprob_tolerance,
                 )
+                if config.dynamic_sampling and pending is not None:
+                    from grpo_training.recovery import subset_capture
+                    from grpo_training.sampling import mixed_reward
+
+                    label_map = {label.id: label for label in labels}
+                    useful = tuple(
+                        g for g in pending.prepared.groups if mixed_reward(g, label_map)
+                    )
+                    pending = (
+                        subset_capture(pending, useful, labels) if useful else None
+                    )
                 progress = replace(
                     progress,
-                    cursor=(progress.cursor + config.questions_per_update)
-                    % len(train.questions),
+                    cursor=(progress.cursor + consumed) % len(train.questions),
                     round_index=progress.round_index + 1,
                     consecutive_empty_batches=progress.consecutive_empty_batches + 1
                     if pending is None
