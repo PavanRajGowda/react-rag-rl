@@ -1,4 +1,4 @@
-"""Lazy GPU dependencies; Transformers generation on a T4 in FP16."""
+"""Lazy GPU dependencies; Transformers generation with optional weight quantization."""
 
 import time
 
@@ -9,7 +9,7 @@ ASSISTANT_PREFILL = "<reasoning>"
 
 
 class QwenGenerator:
-    def __init__(self, model_path, config):
+    def __init__(self, model_path, config, precision="fp16"):
         import torch
         from transformers import (
             AutoTokenizer,
@@ -19,6 +19,22 @@ class QwenGenerator:
 
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for this baseline")
+        if precision not in ("fp16", "int8", "nf4"):
+            raise ValueError("precision must be fp16, int8 or nf4")
+        options = {}
+        if precision != "fp16":
+            from transformers import BitsAndBytesConfig
+
+            options["quantization_config"] = (
+                BitsAndBytesConfig(load_in_8bit=True)
+                if precision == "int8"
+                else BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                )
+            )
         set_seed(config.seed)
         self.config = config
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -30,8 +46,9 @@ class QwenGenerator:
             device_map="cuda:0",
             attn_implementation="sdpa",
             local_files_only=True,
+            **options,
         ).eval()
-        print(f"Loaded Qwen on {torch.cuda.get_device_name(0)} in FP16", flush=True)
+        print(f"Loaded Qwen on {torch.cuda.get_device_name(0)}: {precision}", flush=True)
 
     def make_prefix(self, question):
         self.base_messages = messages(question)
