@@ -26,6 +26,44 @@ def test_validation_schedule():
     assert [s for s in range(51) if validation_due(s, 20, 50)] == [0, 20, 40, 50]
 
 
+def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
+    from grpo_training.records import PolicyVersion
+    from grpo_training.rollouts import template_digest
+    from grpo_training.validation import evaluate
+    from grpo_training.vllm_backend import BackendFailure, GenerationBatch
+    from tests.test_grpo_replay import ToyTokenizer
+
+    config = TrainingConfig()
+    train = inputs(config)
+    dev = replace(
+        train,
+        split="dev",
+        questions=tuple(replace(q, split="dev") for q in train.questions),
+    )
+    tokenizer = ToyTokenizer()
+    policy = PolicyVersion(
+        config.model_revision,
+        config.model_revision,
+        "base",
+        0,
+        template_digest(tokenizer),
+    )
+
+    class FailedBackend:
+        def generate(self, requests):
+            return GenerationBatch(
+                tuple(BackendFailure(r, ValueError("bad packet")) for r in requests),
+                0.1,
+            )
+
+    summary = evaluate(
+        dev, config, policy, FailedBackend(), tokenizer, lambda p: {}, tmp_path
+    )
+    assert summary["technical_failures"] == 3
+    assert summary["questions"] == 3
+    assert summary["number_match"] is None
+
+
 def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
     from grpo_training.records import PolicyVersion
     from grpo_training.rollouts import template_digest
@@ -56,9 +94,9 @@ def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
     )
     assert summary["number_match"] == 1
     assert summary["questions"] == 2
-    assert backend.batch_sizes == [1, 1, 1, 1]
+    assert backend.batch_sizes == [2, 2]
     evaluate(dev, config, policy, backend, tokenizer, lambda p: response(), tmp_path)
-    assert backend.batch_sizes == [1, 1, 1, 1]
+    assert backend.batch_sizes == [2, 2]
     with pytest.raises(ValueError, match="identity changed"):
         evaluate(
             dev,
@@ -87,9 +125,10 @@ def test_runner_validates_initial_periodic_final_without_extra_updates(
     observed = []
 
     def evaluate(dev, config, policy, *args):
-        observed.append(policy.optimizer_step)
+        observed.append(("validation", policy.optimizer_step))
         return {"step": policy.optimizer_step, "number_match": 1}
 
+    kwargs["observer"].step = lambda metrics: observed.append(("step", metrics["step"]))
     monkeypatch.setattr("grpo_training.validation.evaluate", evaluate)
     run_training(
         trainer,
@@ -102,5 +141,12 @@ def test_runner_validates_initial_periodic_final_without_extra_updates(
         validation_interval=2,
         **kwargs,
     )
-    assert observed == [0, 2, 3]
+    assert observed == [
+        ("validation", 0),
+        ("step", 1),
+        ("step", 2),
+        ("validation", 2),
+        ("step", 3),
+        ("validation", 3),
+    ]
     assert trace.count("backward") == 3

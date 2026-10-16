@@ -325,10 +325,12 @@ def run_training(
                     else 0,
                 )
                 if pending is None:
-                    store.audit(
+                    audit(
                         {
                             "kind": "batch_skipped",
-                            "reason": "no_complete_trustworthy_groups",
+                            "reason": "no_mixed_reward_groups"
+                            if config.dynamic_sampling
+                            else "no_complete_trustworthy_groups",
                             "round": progress.round_index - 1,
                             "step": progress.step,
                             "consecutive_empty_batches": progress.consecutive_empty_batches,
@@ -345,7 +347,7 @@ def run_training(
                         >= config.max_consecutive_empty_batches
                     ):
                         raise RuntimeError(
-                            "Repeated empty batches exhausted recovery circuit breaker; inspect trajectory/probability agreement failures"
+                            "Repeated empty batches exhausted recovery circuit breaker; inspect dynamic-sampling acceptance and trajectory/probability agreement failures"
                         )
                     continue
                 observer.rollout(
@@ -401,9 +403,9 @@ def run_training(
             checkpoint_started = time.perf_counter()
             checkpoint = store.save(trainer, artifact, progress, pending)
             metrics["checkpoint_seconds"] = time.perf_counter() - checkpoint_started
-            validate_current()
             observer.step(metrics)
             store.audit(metrics | {"checkpoint": checkpoint.name})
+            validate_current()
             emit(
                 f"Step {progress.step}/{config.max_steps} | reward={metrics['mean_reward']:.3f} "
                 f"loss={loss:.5f} grad_norm={grad_norm:.4f} | checkpoint={checkpoint.name}",

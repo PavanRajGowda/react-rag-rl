@@ -179,3 +179,43 @@ def test_mirror_rejects_unsafe_paths(tmp_path):
     mirror = ModalMirror("run", tmp_path, volume=NS())
     with pytest.raises(ValueError):
         mirror.download("../run.json")
+
+
+def test_dynamic_candidate_totals_survive_observer_restart(tmp_path):
+    from grpo_training.checkpoints import Progress
+    from grpo_training.observability import RunObserver
+
+    totals = {
+        "groups": 3,
+        "accepted": 1,
+        "episodes": 12,
+        "correct": 7,
+        "generated_tokens": 100,
+    }
+    atomic_json(tmp_path / "observability/live.json", {"dynamic_totals": totals})
+    observer = RunObserver(
+        NS(root=tmp_path, durable=lambda: None),
+        NS(state=NS(global_step=0)),
+        NS(config=CONFIG),
+        NS(),
+        reference=NS(),
+        writer=NS(flush=lambda: None),
+    )
+    observer.reference_step = lambda step: None
+    observer.start(Progress())
+    observer.event(
+        {
+            "kind": "dynamic_group",
+            "accepted": True,
+            "episodes": 4,
+            "correct": 2,
+            "generated_tokens": 50,
+        }
+    )
+    assert observer.status["dynamic_totals"] == {
+        "groups": 4,
+        "accepted": 2,
+        "episodes": 16,
+        "correct": 9,
+        "generated_tokens": 150,
+    }

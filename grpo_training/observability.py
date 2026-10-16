@@ -186,6 +186,13 @@ class RunObserver:
             if previous_live.exists()
             else {}
         )
+        self.previous_sampling_totals = (
+            json.loads(previous_live.read_text(encoding="utf-8")).get(
+                "dynamic_totals", {}
+            )
+            if previous_live.exists()
+            else {}
+        )
         self.recovery_counts = (
             dict.fromkeys(
                 (
@@ -255,6 +262,8 @@ class RunObserver:
             "committed_step": progress.step,
             "max_steps": self.config.max_steps,
         }
+        if self.previous_sampling_totals:
+            self.status["dynamic_totals"] = dict(self.previous_sampling_totals)
         self.reference_step(progress.step)
         self.phase("ready")
 
