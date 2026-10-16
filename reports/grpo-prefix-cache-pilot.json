@@ -1,0 +1,254 @@
+{
+  "run_id": "16f6b04668c0",
+  "modal_app_id": "ap-c5zfdpOFpWJv6leMTgfRzk",
+  "code_commit": "f91b79d",
+  "settings": {
+    "config": {
+      "model_id": "Qwen/Qwen3.5-4B",
+      "model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "dataset_id": "G4KMU/t2-ragbench",
+      "dataset_config": "FinQA",
+      "dataset_revision": "adf7fe1541ac37351ce1142544d8e3b43010ed92",
+      "corpus_version": "finqa-301676584646",
+      "search_schema_version": 4,
+      "gpu": "H100",
+      "dtype": "bfloat16",
+      "seed": 42,
+      "top_k": 2,
+      "max_searches": 6,
+      "max_turns": 8,
+      "max_new_tokens": 1024,
+      "max_context_tokens": 8192,
+      "context_mode": "replace",
+      "num_generations": 4,
+      "questions_per_update": 2,
+      "replay_microbatch_segments": 1,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "learning_rate": 1e-05,
+      "warmup_ratio": 0.05,
+      "max_grad_norm": 1.0,
+      "max_steps": 3,
+      "optimizer": "adamw",
+      "scheduler": "constant_with_warmup",
+      "lora_rank": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.0,
+      "gradient_checkpointing": true,
+      "loss_type": "dapo",
+      "scale_rewards": "group",
+      "beta": 0.0,
+      "num_iterations": 2,
+      "reward": "number_match_0_1",
+      "vllm_mode": "colocate",
+      "vllm_importance_sampling_correction": true,
+      "epsilon_low": 0.2,
+      "epsilon_high": 0.28,
+      "vllm_importance_sampling_cap": 2.0,
+      "max_trajectory_attempts": 2,
+      "max_consecutive_empty_batches": 3,
+      "reference_probe_questions": 4,
+      "dynamic_sampling": false,
+      "dynamic_sampling_multiplier": 4
+    },
+    "question_ids": [
+      "finqa_train_5238",
+      "finqa_train_912",
+      "finqa_train_204",
+      "finqa_train_6074"
+    ],
+    "selection_seed": 42,
+    "training_updates": 0,
+    "cache_reset_between_batches": true,
+    "precision": "fp8"
+  },
+  "summary": {
+    "cache-off": {
+      "complete": true,
+      "expected_trajectories": 16,
+      "trajectories": 16,
+      "number_match": 0.9375,
+      "rollout_wall_seconds": 158.61681707499997,
+      "trajectories_per_hour": 363.13930049904206,
+      "generation_tokens_per_second": 53.54356716872232,
+      "generation_wave_seconds": 124.73954114700007,
+      "cache": {
+        "engine_requests": 41,
+        "requests_missing_counter": 0,
+        "prompt_tokens": 68972,
+        "cached_tokens": 0,
+        "token_hit_fraction": 0.0,
+        "requests_with_cache_hit": 0
+      }
+    },
+    "cache-on": {
+      "complete": true,
+      "expected_trajectories": 16,
+      "trajectories": 16,
+      "number_match": 0.9375,
+      "rollout_wall_seconds": 163.92510083400003,
+      "trajectories_per_hour": 351.3799882199192,
+      "generation_tokens_per_second": 49.18402956002124,
+      "generation_wave_seconds": 129.4525897320002,
+      "cache": {
+        "engine_requests": 38,
+        "requests_missing_counter": 0,
+        "prompt_tokens": 68943,
+        "cached_tokens": 19008,
+        "token_hit_fraction": 0.27570601801488187,
+        "requests_with_cache_hit": 36
+      }
+    }
+  },
+  "details": {
+    "cache-off": {
+      "batches": [
+        {
+          "batch": 0,
+          "rollout_wall_seconds": 111.855212478,
+          "generation_wave_seconds": 80.61153286599995,
+          "resolved_cache_config": {
+            "enable_prefix_caching": false,
+            "mamba_cache_mode": "none",
+            "block_size": 16,
+            "mamba_block_size": 8192,
+            "hash_block_size": null
+          },
+          "first_turn_groups": [
+            {
+              "question_id": "finqa_train_5238",
+              "trajectories": 4,
+              "identical_prompt_tokens": 619,
+              "unique_seeds": 4
+            },
+            {
+              "question_id": "finqa_train_912",
+              "trajectories": 4,
+              "identical_prompt_tokens": 632,
+              "unique_seeds": 4
+            }
+          ]
+        },
+        {
+          "batch": 1,
+          "rollout_wall_seconds": 46.76160459699997,
+          "generation_wave_seconds": 44.12800828100012,
+          "resolved_cache_config": {
+            "enable_prefix_caching": false,
+            "mamba_cache_mode": "none",
+            "block_size": 16,
+            "mamba_block_size": 8192,
+            "hash_block_size": null
+          },
+          "first_turn_groups": [
+            {
+              "question_id": "finqa_train_204",
+              "trajectories": 4,
+              "identical_prompt_tokens": 637,
+              "unique_seeds": 4
+            },
+            {
+              "question_id": "finqa_train_6074",
+              "trajectories": 4,
+              "identical_prompt_tokens": 627,
+              "unique_seeds": 4
+            }
+          ]
+        }
+      ],
+      "generated_tokens": 6679,
+      "retained_tokens": 6679,
+      "initial_requests": 17,
+      "initial_requests_with_hit": 0,
+      "statuses": {
+        "answered": 16
+      },
+      "technical_retry_events": 0,
+      "dropped_groups": 0,
+      "positive_cache_hit_lengths": []
+    },
+    "cache-on": {
+      "batches": [
+        {
+          "batch": 0,
+          "rollout_wall_seconds": 97.14841880900002,
+          "generation_wave_seconds": 65.53948677400012,
+          "resolved_cache_config": {
+            "enable_prefix_caching": true,
+            "mamba_cache_mode": "align",
+            "block_size": 16,
+            "mamba_block_size": 16,
+            "hash_block_size": null
+          },
+          "first_turn_groups": [
+            {
+              "question_id": "finqa_train_5238",
+              "trajectories": 4,
+              "identical_prompt_tokens": 619,
+              "unique_seeds": 4
+            },
+            {
+              "question_id": "finqa_train_912",
+              "trajectories": 4,
+              "identical_prompt_tokens": 632,
+              "unique_seeds": 4
+            }
+          ]
+        },
+        {
+          "batch": 1,
+          "rollout_wall_seconds": 66.77668202500001,
+          "generation_wave_seconds": 63.91310295800008,
+          "resolved_cache_config": {
+            "enable_prefix_caching": true,
+            "mamba_cache_mode": "align",
+            "block_size": 16,
+            "mamba_block_size": 16,
+            "hash_block_size": null
+          },
+          "first_turn_groups": [
+            {
+              "question_id": "finqa_train_204",
+              "trajectories": 4,
+              "identical_prompt_tokens": 637,
+              "unique_seeds": 4
+            },
+            {
+              "question_id": "finqa_train_6074",
+              "trajectories": 4,
+              "identical_prompt_tokens": 627,
+              "unique_seeds": 4
+            }
+          ]
+        }
+      ],
+      "generated_tokens": 6367,
+      "retained_tokens": 6367,
+      "initial_requests": 16,
+      "initial_requests_with_hit": 14,
+      "statuses": {
+        "answered": 16
+      },
+      "technical_retry_events": 0,
+      "dropped_groups": 0,
+      "positive_cache_hit_lengths": [
+        528
+      ]
+    }
+  },
+  "same_episode_seeds": true,
+  "rollout_time_change": 0.03346608422037689,
+  "token_throughput_change": -0.08142038043456545,
+  "conclusion": "Cache hits confirmed, but this two-batch pilot shows no consistent rollout speed improvement. Keep training cache disabled pending profiling or repeated larger-group tests.",
+  "limitations": [
+    "Four fixed train questions, G=4; not an accuracy/generalization study.",
+    "Two batches per arm, sampled trajectories can differ despite matching seeds.",
+    "Startup excluded, residual shape-specific JIT effects possible.",
+    "Rollout wall time includes search service waits and potential cold starts.",
+    "No replay, optimizer or dynamic group filtering performed."
+  ],
+  "paired_rewards": {
+    "lost_correct": 1,
+    "gained_correct": 1
+  }
+}
