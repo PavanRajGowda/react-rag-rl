@@ -238,7 +238,8 @@ def main(
 
         train = sample_training_questions(train, train_sample_size, train_sample_seed)
         if (
-            config.max_steps * config.questions_per_update
+            not config.dynamic_sampling
+            and config.max_steps * config.questions_per_update
             > len(train.questions) * config.num_iterations
         ):
             raise ValueError(

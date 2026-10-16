@@ -193,6 +193,12 @@ def run_training(
                     observer.index["validation"] = sorted(
                         set(observer.index.get("validation", [])) | {progress.step}
                     )
+                    if result["number_match"] is not None:
+                        observer.writer.add_scalar(
+                            "validation/number_match",
+                            result["number_match"],
+                            progress.step,
+                        )
                     observer.publish(force=True)
             finally:
                 backend.sleep()
