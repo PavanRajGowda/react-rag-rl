@@ -129,7 +129,14 @@ def release_writer(registry, run_id, token):
     single_use_containers=True,
 )
 def train_run(
-    run_id, config_values, train_values, identity, resume=False, reference_metadata=None
+    run_id,
+    config_values,
+    train_values,
+    identity,
+    resume=False,
+    reference_metadata=None,
+    dev_values=None,
+    validation_interval=20,
 ):
     from grpo_training.checkpoints import Progress, RunStore
     from grpo_training.config import TrainingConfig
@@ -149,7 +156,18 @@ def train_run(
             tuple(train_values["skipped_blank_ids"]),
             train_values["selected_source_count"],
         )
-        if run_identity(config, train) != identity:
+        dev = (
+            None
+            if dev_values is None
+            else PreparedSplit(
+                "dev",
+                tuple(Question(**q) for q in dev_values["questions"]),
+                tuple(RewardLabel(**label) for label in dev_values["labels"]),
+                tuple(dev_values["skipped_blank_ids"]),
+                dev_values["selected_source_count"],
+            )
+        )
+        if run_identity(config, train, dev) != identity:
             raise ValueError("Remote source/data identity differs from local preflight")
         store = RunStore("/runs", run_id, identity, resume=resume, durable=runs.commit)
         cache.reload()
@@ -178,6 +196,8 @@ def train_run(
             pending=pending,
             rng=rng,
             reference_catalog=reference_metadata,
+            validation=dev,
+            validation_interval=validation_interval,
         )
     finally:
         try:
@@ -194,6 +214,8 @@ def main(
     train_sample_size: int = 0,
     train_sample_seed: int = 42,
     resume: bool = False,
+    validation_count: int = 50,
+    validation_interval: int = 20,
 ):
     """Explicit paid execution command, to be run only after GPU smoke approval."""
     from grpo_training.config import TrainingConfig
@@ -203,11 +225,13 @@ def main(
     config = TrainingConfig.from_dict(
         json.loads(Path(config_path).read_text(encoding="utf-8"))
     )
-    train, _, _ = load_local_splits(
+    if validation_interval <= 0 or validation_count <= 0:
+        raise ValueError("Validation count/interval must be positive")
+    train, dev, _ = load_local_splits(
         ROOT / "data/finqa",
         config,
         train_count=None if train_sample_size else train_count,
-        dev_count=1,
+        dev_count=None,
     )
     if train_sample_size:
         from grpo_training.data import sample_training_questions
@@ -220,7 +244,10 @@ def main(
             raise ValueError(
                 "Random-subset pilot would repeat questions; increase sample size"
             )
-    identity = run_identity(config, train)
+    from grpo_training.validation import select_validation
+
+    dev = select_validation(dev, validation_count)
+    identity = run_identity(config, train, dev)
     print(
         json.dumps(
             {
@@ -240,6 +267,13 @@ def main(
     )
     warm_model.remote(config.to_dict())
     result = train_run.remote(
-        run_id, config.to_dict(), asdict(train), identity, resume, catalog
+        run_id,
+        config.to_dict(),
+        asdict(train),
+        identity,
+        resume,
+        catalog,
+        asdict(dev),
+        validation_interval,
     )
     print(json.dumps(result, indent=2))

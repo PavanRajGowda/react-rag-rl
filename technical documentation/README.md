@@ -1721,3 +1721,6 @@ malformed logprob entries) are also scoped to the response, retaining healthy
 siblings. Prompt/adapter identity or overall batch membership corruption remains
 fatal. Final CPU verification includes 54 native ML tests, with a real-gradient
 partial-batch equivalence test and a partial checkpoint/circuit-counter round trip.
+
+### Fixed dev validation
+`grpo_training/validation.py` selects 50 nonblank dev questions without replacement (seed 1729), independently of train selection. Modal includes the selection in the run identity and evaluates at step zero, every 20 optimizer steps, and the final step. Each question receives one full agent trajectory with fixed question/turn seeds and the same sampling settings at every checkpoint. No evaluation trajectory enters replay or dynamic filtering. Individual episode records, gold labels, timing, and scoring live under `observability/validation/<step>/`; summary files live alongside those directories. Completed question files are reusable after interruption only with matching policy/config/selection identity. A technical failure makes aggregate accuracy unavailable rather than silently changing its denominator. Validation is sequential initially to limit memory and implementation complexity. It adds generation cost; the smoke test may select fewer dev questions via `--validation-count`.

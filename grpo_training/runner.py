@@ -18,7 +18,7 @@ from grpo_training.trainer import (
 )
 
 
-def run_identity(config, train):
+def run_identity(config, train, dev=None):
     validate_replay_config(config)
     if (
         type(train) is not PreparedSplit
@@ -43,6 +43,7 @@ def run_identity(config, train):
         "schema_version": 1,
         "config": config.to_dict(),
         "train": split_record(train),
+        **({"validation": split_record(dev)} if dev is not None else {}),
         "source_sha256": training_source_hashes(),
     }
 
@@ -102,6 +103,8 @@ def run_training(
     release_memory=None,
     observer=None,
     reference_catalog=None,
+    validation=None,
+    validation_interval=20,
 ):
     """One caller owns the GPU/run lock. Checkpoint after every successful step.
 
@@ -111,7 +114,7 @@ def run_training(
     progress = Progress() if progress is None else progress
     config = bundle.config
     validate_replay_config(config)
-    if store.identity != run_identity(config, train):
+    if store.identity != run_identity(config, train, validation):
         raise ValueError("Run store identity disagrees with current inputs/source")
     if (
         progress.step != trainer.state.global_step
@@ -158,6 +161,39 @@ def run_training(
             backend.sleep()
             awake = False
             observer.rollout(pending, fresh=False, round_index=progress.round_index - 1)
+
+        def validate_current():
+            nonlocal awake
+            from grpo_training.validation import evaluate, validation_due
+
+            if validation is None or not validation_due(
+                progress.step, validation_interval, config.max_steps
+            ):
+                return
+            observer.phase(
+                "validation", step=progress.step, questions=len(validation.questions)
+            )
+            release_memory()
+            if not awake:
+                backend.wake_up()
+                awake = True
+            backend.synchronize(artifact)
+            try:
+                result = evaluate(
+                    validation,
+                    config,
+                    artifact.policy,
+                    backend,
+                    bundle.tokenizer,
+                    search,
+                    store.root,
+                )
+                store.audit({"kind": "validation", **result})
+            finally:
+                backend.sleep()
+                awake = False
+
+        validate_current()
         while progress.step < config.max_steps:
             if pending is None:
                 observer.phase("synchronize", step=progress.step)
@@ -325,6 +361,7 @@ def run_training(
             checkpoint_started = time.perf_counter()
             checkpoint = store.save(trainer, artifact, progress, pending)
             metrics["checkpoint_seconds"] = time.perf_counter() - checkpoint_started
+            validate_current()
             observer.step(metrics)
             store.audit(metrics | {"checkpoint": checkpoint.name})
             emit(
