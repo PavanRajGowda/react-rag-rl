@@ -14,6 +14,8 @@ from baseline_agent.batch import retry_call, write_json
 from grpo_training.config import TrainingConfig
 from grpo_training.modal_app import cache, image, search_transport
 
+image = image.add_local_python_source("experiments")
+
 app = modal.App("finance-rag-grpo-cache-pilot")
 logger = logging.getLogger(__name__)
 

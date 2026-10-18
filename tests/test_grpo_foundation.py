@@ -197,5 +197,5 @@ def test_local_loader_manifest_and_provenance(tmp_path):
 
 
 def test_foundation_imports_do_not_load_training_or_cloud_libraries():
-    code = "import sys; import grpo_training.inspect; assert not {'torch', 'trl', 'vllm', 'modal', 'transformers', 'datasets'} & set(sys.modules)"
+    code = "import sys; import experiments.grpo.inspect; assert not {'torch', 'trl', 'vllm', 'modal', 'transformers', 'datasets'} & set(sys.modules)"
     subprocess.run([sys.executable, "-c", code], check=True)

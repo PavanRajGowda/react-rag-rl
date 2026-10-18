@@ -501,8 +501,8 @@ boundaries and local preflight provenance. It does not contain a trainer or
 launch GPU jobs. Run the CPU-only inspection from the project root:
 
 ```powershell
-.\.tools\uv.exe run --frozen python -m grpo_training.inspect
-.\.tools\uv.exe run --frozen python -m grpo_training.inspect --config grpo_training/configs/smoke.json --train-count 4 --dev-count 4
+.\.tools\uv.exe run --frozen python -m experiments.grpo.inspect
+.\.tools\uv.exe run --frozen python -m experiments.grpo.inspect --config grpo_training/configs/smoke.json --train-count 4 --dev-count 4
 ```
 
 Add `--output-root data/grpo/preflight` to save a local review record. It refuses

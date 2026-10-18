@@ -2,7 +2,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from grpo_training.cache_benchmark import MeasuredBackend, summarize_cache
+from experiments.grpo.cache_benchmark import MeasuredBackend, summarize_cache
 
 
 def test_cache_fraction_is_token_weighted_and_missing_is_unknown():
