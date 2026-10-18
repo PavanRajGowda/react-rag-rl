@@ -62,6 +62,10 @@ def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
     assert summary["technical_failures"] == 3
     assert summary["questions"] == 3
     assert summary["number_match"] is None
+    assert summary["efficiency"]["all"]["questions"] == 3
+    assert summary["efficiency"]["correct_only"]["questions"] == 0
+    assert summary["efficiency"]["technical_failures"] == 3
+    assert summary["efficiency"]["correct_only"]["tokens_per_question"]["value"] is None
 
 
 def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
@@ -95,6 +99,10 @@ def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
     assert summary["number_match"] == 1
     assert summary["questions"] == 2
     assert backend.batch_sizes == [2, 2]
+    assert summary["efficiency"]["all"]["searches_per_question"]["value"] == 1
+    assert summary["efficiency"]["all"]["turns_per_question"]["value"] == 2
+    assert summary["efficiency"]["correct_only"]["questions"] == 2
+    assert summary["efficiency"]["all"]["turn_limit"]["value"] == 0
     evaluate(dev, config, policy, backend, tokenizer, lambda p: response(), tmp_path)
     assert backend.batch_sizes == [2, 2]
     with pytest.raises(ValueError, match="identity changed"):

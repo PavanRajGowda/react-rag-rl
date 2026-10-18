@@ -1,14 +1,10 @@
 """Bounded DAPO question-group oversampling under one fixed rollout policy."""
 
-from grpo_training.rewards import episode_reward
+from grpo_training.rewards import group_outcome
 
 
-def mixed_reward(group, labels):
-    rewards = [
-        episode_reward(e.question.id, e.status, e.answer, labels[e.question.id]).reward
-        for e in group.episodes
-    ]
-    return None not in rewards and len(set(rewards)) > 1
+def has_learning_signal(group, labels):
+    return group_outcome(group, labels[group.episodes[0].question.id]).learning_signal
 
 
 def collect_dynamic(
@@ -55,7 +51,8 @@ def collect_dynamic(
         )
         consumed += count
         for group in groups:
-            keep = mixed_reward(group, labels)
+            outcome = group_outcome(group, labels[group.episodes[0].question.id])
+            keep = outcome.learning_signal
             audit(
                 {
                     "kind": "dynamic_group",
@@ -63,13 +60,11 @@ def collect_dynamic(
                     "question_id": group.episodes[0].question.id,
                     "accepted": keep,
                     "episodes": len(group.episodes),
-                    "correct": sum(
-                        episode_reward(
-                            e.question.id, e.status, e.answer, labels[e.question.id]
-                        ).reward
-                        == 1
-                        for e in group.episodes
-                    ),
+                    "correct": sum(score.reward == 1 for score in outcome.scores),
+                    "reward_type": config.reward,
+                    "training_rewards": outcome.rewards,
+                    "turns": outcome.turns,
+                    "min_successful_turns": outcome.min_successful_turns,
                     "generated_tokens": sum(
                         len(r.completion_ids)
                         for e in group.episodes

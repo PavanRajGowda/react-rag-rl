@@ -24,7 +24,22 @@ image = (
         uv_version="0.13.0",
         extra_options="--no-dev",
     )
-    .env({"VLLM_WORKER_MULTIPROC_METHOD": "spawn", "TOKENIZERS_PARALLELISM": "false"})
+    .apt_install("build-essential")
+    .uv_pip_install(
+        "flash-linear-attention[cuda]==0.5.2",
+        "fla-core[cuda]==0.5.2",
+        "causal-conv1d==1.7.0",
+        extra_options="--no-deps --no-build-isolation",
+        uv_version="0.13.0",
+        env={"MAX_JOBS": "4", "CC": "gcc", "CXX": "g++", "CUDAHOSTCXX": "g++"},
+    )
+    .env(
+        {
+            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+            "TOKENIZERS_PARALLELISM": "false",
+            "TRITON_CACHE_DIR": "/cache/triton",
+        }
+    )
     .add_local_python_source("grpo_training", "baseline_agent")
     .add_local_file(
         ROOT / "grpo_training/pyproject.toml", "/root/grpo_training/pyproject.toml"
@@ -118,8 +133,8 @@ def release_writer(registry, run_id, token):
 @app.function(
     image=image,
     gpu="H100",
-    cpu=4,
-    memory=32768,
+    cpu=8,
+    memory=65536,
     volumes={"/cache": cache, "/runs": runs},
     timeout=24 * 3600,
     retries=0,
@@ -137,6 +152,7 @@ def train_run(
     reference_metadata=None,
     dev_values=None,
     validation_interval=20,
+    execution_mode="compiled",
 ):
     from grpo_training.checkpoints import Progress, RunStore
     from grpo_training.config import TrainingConfig
@@ -170,6 +186,14 @@ def train_run(
         if run_identity(config, train, dev) != identity:
             raise ValueError("Remote source/data identity differs from local preflight")
         store = RunStore("/runs", run_id, identity, resume=resume, durable=runs.commit)
+        execution = {
+            "mode": execution_mode,
+            "max_num_seqs": config.questions_per_update * config.num_generations,
+        }
+        (store.root / "execution.json").write_text(
+            json.dumps(execution, indent=2) + "\n", encoding="utf-8"
+        )
+        store.audit({"kind": "execution_configuration", **execution})
         cache.reload()
         bundle = load_training_model(config, cache_dir="/cache/hub")
         trainer = create_replay_trainer(bundle, train.questions, store.root / "trainer")
@@ -183,7 +207,11 @@ def train_run(
 
             artifact = export_adapter(bundle, store.root / "transfers", 0)
             store.save(trainer, artifact, progress)
-        backend = create_vllm_backend(bundle)
+        backend = create_vllm_backend(
+            bundle,
+            execution_mode=execution_mode,
+            max_num_seqs=execution["max_num_seqs"],
+        )
         service = modal.Cls.from_name("finance-rag-search", "SearchService")()
         return run_training(
             trainer,
@@ -213,9 +241,11 @@ def main(
     train_count: int = 16,
     train_sample_size: int = 0,
     train_sample_seed: int = 42,
+    full_train: bool = False,
     resume: bool = False,
     validation_count: int = 50,
     validation_interval: int = 20,
+    execution_mode: str = "compiled",
 ):
     """Explicit paid execution command, to be run only after GPU smoke approval."""
     from grpo_training.config import TrainingConfig
@@ -225,15 +255,26 @@ def main(
     config = TrainingConfig.from_dict(
         json.loads(Path(config_path).read_text(encoding="utf-8"))
     )
+    if execution_mode not in ("eager", "graphs", "compiled"):
+        raise ValueError("Expected eager, graphs, or compiled execution")
     if validation_interval <= 0 or validation_count <= 0:
         raise ValueError("Validation count/interval must be positive")
+    if full_train and train_sample_size:
+        raise ValueError("Choose full training split or a subset, not both")
     train, dev, _ = load_local_splits(
         ROOT / "data/finqa",
         config,
-        train_count=None if train_sample_size else train_count,
+        train_count=None if full_train or train_sample_size else train_count,
         dev_count=None,
     )
-    if train_sample_size:
+    if full_train:
+        from grpo_training.data import sample_training_questions
+
+        # Permute every question without dropping any; not a subset selection.
+        train = sample_training_questions(
+            train, len(train.questions), train_sample_seed
+        )
+    elif train_sample_size:
         from grpo_training.data import sample_training_questions
 
         train = sample_training_questions(train, train_sample_size, train_sample_seed)
@@ -254,6 +295,8 @@ def main(
             {
                 "reward": config.reward,
                 "temperature": config.temperature,
+                "full_train": full_train,
+                "training_question_count": len(train.questions),
                 "subset_seed": train_sample_seed if train_sample_size else None,
                 "selected_question_ids": [q.id for q in train.questions],
             },
@@ -276,5 +319,6 @@ def main(
         catalog,
         asdict(dev),
         validation_interval,
+        execution_mode,
     )
     print(json.dumps(result, indent=2))

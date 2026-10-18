@@ -362,8 +362,10 @@ def test_duplicate_or_changed_sampling_requests_rejected(setup):
 
 @pytest.mark.parametrize("quantization", [None, "fp8"])
 @pytest.mark.parametrize("prefix_caching", [False, True])
+@pytest.mark.parametrize("execution_mode", ["eager", "graphs", "compiled"])
+@pytest.mark.parametrize("max_num_seqs", [None, 80])
 def test_factory_uses_reviewed_runtime_settings(
-    setup, monkeypatch, quantization, prefix_caching
+    setup, monkeypatch, quantization, prefix_caching, execution_mode, max_num_seqs
 ):
     import grpo_training.vllm_backend as module
 
@@ -378,13 +380,32 @@ def test_factory_uses_reviewed_runtime_settings(
     monkeypatch.setitem(sys.modules, "vllm", NS(LLM=factory))
     monkeypatch.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     backend = create_vllm_backend(
-        bundle, quantization=quantization, enable_prefix_caching=prefix_caching
+        bundle,
+        quantization=quantization,
+        enable_prefix_caching=prefix_caching,
+        execution_mode=execution_mode,
+        max_num_seqs=max_num_seqs,
     )
     assert backend.policy is None
     assert captured["model"] == str(bundle.snapshot)
     assert captured["dtype"] == "bfloat16" and captured["quantization"] == quantization
     assert captured["logprobs_mode"] == "processed_logprobs"
-    assert captured["enable_sleep_mode"] and captured["enforce_eager"]
+    assert captured["enable_sleep_mode"]
+    assert captured["enforce_eager"] is (execution_mode == "eager")
+    if execution_mode == "eager":
+        assert "compilation_config" not in captured
+    else:
+        assert captured["compilation_config"]["mode"] == (
+            0 if execution_mode == "graphs" else 3
+        )
+        assert captured["compilation_config"]["cudagraph_mode"] == "FULL_DECODE_ONLY"
+        assert captured["cudagraph_metrics"] is True
+        assert captured["max_num_seqs"] == (max_num_seqs or 16)
+        assert captured["compilation_config"]["max_cudagraph_capture_size"] == (
+            max_num_seqs or 16
+        )
+    if max_num_seqs is not None:
+        assert captured["max_num_seqs"] == max_num_seqs
     assert captured["enable_prefix_caching"] is prefix_caching
     assert captured["limit_mm_per_prompt"] == {"image": 0, "video": 0}
 
@@ -480,6 +501,7 @@ def test_loader_pins_snapshot_and_freezes_base_model(tmp_path, monkeypatch):
         return model
 
     monkeypatch.setattr(module, "check_runtime", lambda: None)
+    monkeypatch.setattr(module, "check_optimized_kernels", lambda: None)
     monkeypatch.setitem(
         sys.modules,
         "torch",
@@ -572,6 +594,14 @@ def test_one_response_failure_keeps_other_batch_generation(setup):
     assert batch.generations[0].raw_token_count > 0
     assert batch.generations[1].finish_reason == "action"
     assert batch.generations[1].request == request(artifact, 1)
+
+
+def test_required_optimized_kernels():
+    from grpo_training.model import check_optimized_kernels
+
+    check_optimized_kernels(NS(is_fast_path_available=True))
+    with pytest.raises(RuntimeError, match="optimized"):
+        check_optimized_kernels(NS(is_fast_path_available=False))
 
 
 @pytest.mark.parametrize("kind", ["unfinished", "multiple", "logprob_shape"])

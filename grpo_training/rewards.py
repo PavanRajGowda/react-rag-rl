@@ -95,3 +95,53 @@ def episode_reward(question_id, status, answer, label):
         scoring.get("normalized_gold"),
         scoring["sign_agrees"],
     )
+
+
+@dataclass(frozen=True)
+class GroupOutcome:
+    """Terminal rewards need successful siblings; no intermediate token rewards."""
+
+    scores: tuple[EpisodeReward, ...]  # Unchanged Number Match correctness.
+    rewards: tuple[float | None, ...]  # Configured training objective.
+    turns: tuple[int, ...]
+    min_successful_turns: int | None
+
+    @property
+    def scorable(self):
+        return all(score.scorable for score in self.scores)
+
+    @property
+    def all_correct(self):
+        return all(score.reward == 1 for score in self.scores)
+
+    @property
+    def learning_signal(self):
+        return self.scorable and len(set(self.rewards)) > 1
+
+
+def group_outcome(group, label):
+    """Correct: 1-lambda*(turns-min successful turns); incorrect/unfinished: 0.
+
+    A turn is one saved model generation, including malformed actions and the
+    final answer. Search calls and unsampled context-budget pseudo-turns are not
+    additional turns. Technical errors remain unscorable, never fake negatives.
+    """
+    episodes = group.episodes
+    config = episodes[0].config
+    scores = tuple(
+        episode_reward(e.question.id, e.status, e.answer, label) for e in episodes
+    )
+    turns = tuple(len(e.generations) for e in episodes)
+    successful_turns = [
+        turn for turn, score in zip(turns, scores, strict=True) if score.reward == 1
+    ]
+    minimum = min(successful_turns) if successful_turns else None
+    rewards = tuple(score.reward for score in scores)
+    if config.reward == "number_match_turn_efficiency" and minimum is not None:
+        rewards = tuple(
+            1.0 - config.turn_penalty_lambda * (turn - minimum)
+            if score.reward == 1
+            else score.reward
+            for turn, score in zip(turns, scores, strict=True)
+        )
+    return GroupOutcome(scores, rewards, turns, minimum)

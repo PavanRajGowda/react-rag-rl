@@ -391,9 +391,20 @@ def create_vllm_backend(
     *,
     quantization=None,
     enable_prefix_caching=False,
+    execution_mode="eager",
+    diagnostic_metrics=False,
+    max_num_seqs=None,
 ):
     """Explicit GPU operation. No server, distributed setup or automatic launch."""
     check_runtime()
+    if execution_mode not in ("eager", "graphs", "compiled"):
+        raise ValueError("Unknown vLLM execution mode")
+    if type(diagnostic_metrics) is not bool:
+        raise ValueError("diagnostic_metrics must be a boolean")
+    if max_num_seqs is not None and (
+        type(max_num_seqs) is not int or max_num_seqs <= 0
+    ):
+        raise ValueError("max_num_seqs must be a positive integer or None")
     if quantization not in (None, "fp8"):
         raise ValueError("Only BF16 or experimental FP8 inference is supported")
     if type(enable_prefix_caching) is not bool:
@@ -411,6 +422,30 @@ def create_vllm_backend(
     os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     from vllm import LLM
 
+    execution = {}
+    capture_limit = max_num_seqs or 16
+    capture_sizes = [n for n in (1, 2, 4, 8, 16, 32, 48, 64) if n < capture_limit] + [
+        capture_limit
+    ]
+    if max_num_seqs is not None:
+        execution["max_num_seqs"] = max_num_seqs
+    if diagnostic_metrics:
+        execution["disable_log_stats"] = False
+        execution["max_num_seqs"] = capture_limit
+    if execution_mode != "eager":
+        # Bounded diagnostic capture shapes; production continues to use eager.
+        execution.update(
+            {
+                "compilation_config": {
+                    "mode": 0 if execution_mode == "graphs" else 3,
+                    "cudagraph_mode": "FULL_DECODE_ONLY",
+                    "cudagraph_capture_sizes": capture_sizes,
+                    "max_cudagraph_capture_size": capture_limit,
+                },
+                "cudagraph_metrics": True,
+                "max_num_seqs": capture_limit,
+            }
+        )
     engine = LLM(
         model=str(bundle.snapshot),
         tokenizer=str(bundle.snapshot),
@@ -425,12 +460,13 @@ def create_vllm_backend(
         max_loras=1,
         max_cpu_loras=2,
         enable_sleep_mode=True,
-        enforce_eager=True,
+        enforce_eager=execution_mode == "eager",
         enable_prefix_caching=enable_prefix_caching,
         generation_config="vllm",
         logprobs_mode="processed_logprobs",
         limit_mm_per_prompt={"image": 0, "video": 0},
         seed=bundle.config.seed,
+        **execution,
     )
     actual = engine.get_tokenizer()
     if (

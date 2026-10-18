@@ -10,6 +10,8 @@ from dataclasses import asdict
 from baseline_agent.diagnostics import diagnose
 from baseline_agent.retrieval_diagnostics import annotate_retrieval
 from baseline_agent.scoring import extract_numeric_value, score_answer
+from grpo_training.advantages import group_advantages
+from grpo_training.rewards import group_outcome
 
 
 def distribution(values):
@@ -150,9 +152,41 @@ def rollout_metrics(prepared, labels, reference_catalog=None):
     by_episode = {row["episode_id"]: row for row in episodes}
     groups = []
     signals = {s.episode_id: s for s in prepared.signals}
+    batch_std = statistics.stdev(s.reward for s in prepared.signals)
     for group in prepared.groups:
+        outcome = group_outcome(group, labels[group.episodes[0].question.id])
         rewards = [signals[e.episode_id].reward for e in group.episodes]
         rows = [by_episode[e.episode_id] for e in group.episodes]
+        raw, normalized, _ = group_advantages(
+            rewards,
+            prepared.config,
+            batch_std,
+            positive_only=prepared.config.reward == "number_match_turn_efficiency"
+            and outcome.all_correct,
+        )
+        for index, (episode, row) in enumerate(zip(group.episodes, rows, strict=True)):
+            row.update(
+                training_reward=rewards[index],
+                advantage_raw=raw[index],
+                advantage_normalized=normalized[index],
+                advantage=signals[episode.episode_id].advantage,
+                reward_turns=outcome.turns[index],
+                min_successful_turns=outcome.min_successful_turns,
+            )
+            traces[episode.episode_id]["training_signal"] = {
+                key: row[key]
+                for key in (
+                    "training_reward",
+                    "advantage_raw",
+                    "advantage_normalized",
+                    "advantage",
+                    "reward_turns",
+                    "min_successful_turns",
+                )
+            } | {
+                "reward_type": prepared.config.reward,
+                "turn_penalty_lambda": prepared.config.turn_penalty_lambda,
+            }
         answer_rewards = [float(r["nm"] or 0) for r in rows]
         answers = [r["answer"] for r in rows if r["answer"] is not None]
         numeric_answers = {extract_numeric_value(a) for a in answers} - {None}
@@ -161,6 +195,13 @@ def rollout_metrics(prepared, labels, reference_catalog=None):
                 "group_id": group.episodes[0].group_id,
                 "question_id": group.episodes[0].question.id,
                 "reward": distribution(rewards),
+                "reward_type": prepared.config.reward,
+                "min_successful_turns": outcome.min_successful_turns,
+                "advantage_raw": distribution(raw),
+                "advantage_normalized": distribution(normalized),
+                "advantage": distribution(
+                    signals[e.episode_id].advantage for e in group.episodes
+                ),
                 "answer_reward": distribution(answer_rewards),
                 "all_correct": all(r == 1 for r in answer_rewards),
                 "all_wrong": all(r == 0 for r in answer_rewards),

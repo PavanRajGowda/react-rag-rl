@@ -39,7 +39,7 @@ class ModalMirror:
 
     def download(self, name, *, mutable=False):
         if not re.fullmatch(
-            r"(?:index|live)\.json|(?:steps|reference|validation)/[0-9]{8}\.json|(?:rollouts|traces)/[0-9a-f]{24}\.json",
+            r"(?:index|live)\.json|(?:steps|reference|validation)/[0-9]{8}\.json|validation/[0-9]{8}/(?:identity|finqa_dev_[0-9]+)\.json|(?:rollouts|traces)/[0-9a-f]{24}\.json",
             name,
         ):
             raise ValueError("Invalid mirror path")
@@ -72,7 +72,21 @@ class ModalMirror:
                     if step <= index["committed_step"]:
                         self.download(f"reference/{step:08d}.json")
                 for step in index.get("validation", []):
-                    self.download(f"validation/{step:08d}.json", mutable=True)
+                    summary = self.download(f"validation/{step:08d}.json", mutable=True)
+                    derived = self.root / "validation_efficiency" / f"{step:08d}.json"
+                    if "efficiency" in summary:
+                        atomic_json(derived, summary["efficiency"])
+                    elif not derived.exists():
+                        from grpo_training.validation_metrics import (
+                            validation_efficiency,
+                        )
+
+                        identity = self.download(f"validation/{step:08d}/identity.json")
+                        rows = [
+                            self.download(f"validation/{step:08d}/{qid}.json")
+                            for qid in identity["selection"]["question_ids"]
+                        ]
+                        atomic_json(derived, validation_efficiency(rows))
                 if live.get("rollout_id"):
                     self.download(f"rollouts/{live['rollout_id']}.json")
                 # Event files are append-only; re-fetch only files whose size changed.
@@ -217,6 +231,10 @@ class Reader:
             "reference": reference,
             "validation": [
                 read(p)
+                | {
+                    "efficiency": read(p).get("efficiency")
+                    or read(self.root / "validation_efficiency" / p.name)
+                }
                 for p in sorted((self.root / "validation").glob("*.json"))
                 if int(p.stem) <= index["committed_step"]
             ],
@@ -319,7 +337,7 @@ def create_app(root, *, mirror=None):
 
     @app.get("/api/export/{kind}")
     def export(kind: str):
-        if kind not in ("steps", "episodes", "groups"):
+        if kind not in ("steps", "episodes", "groups", "validation"):
             raise HTTPException(400, "Unknown export")
         rows = reader.snapshot(0, episode_limit=None)[kind]
         fields = sorted({key for row in rows for key in row})

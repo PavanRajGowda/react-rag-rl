@@ -136,5 +136,8 @@ def evaluate(dev, config, policy, backend, tokenizer, search, root, *, seed=1729
         "seconds_this_invocation": time.perf_counter() - started,
     }
     summary["number_match"] = summary["correct"] / len(rows) if not failures else None
+    from grpo_training.validation_metrics import validation_efficiency
+
+    summary["efficiency"] = validation_efficiency(rows)
     atomic_json(root.parent / f"{policy.optimizer_step:08d}.json", summary)
     return summary

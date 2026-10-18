@@ -21,6 +21,9 @@ PINS = {
     "transformers": "5.5.4",
     "peft": "0.18.1",
     "accelerate": "1.12.0",
+    "flash-linear-attention": "0.5.2",
+    "fla-core": "0.5.2",
+    "causal-conv1d": "1.7.0",
 }
 TARGET = re.compile(
     r"model\.language_model\.layers\.\d+\.(?:self_attn\.(?:q_proj|k_proj|v_proj|o_proj)|mlp\.(?:gate_proj|up_proj|down_proj))"
@@ -90,6 +93,16 @@ class TrainingModel:
     targets: tuple[str, ...]
 
 
+def check_optimized_kernels(module=None):
+    if module is None:
+        from transformers.models.qwen3_5 import modeling_qwen3_5 as module
+
+    if not module.is_fast_path_available:
+        raise RuntimeError(
+            "Pinned optimized linear-attention/convolution kernels are unavailable"
+        )
+
+
 def load_training_model(config, cache_dir=None):
     """Explicit GPU operation; call only in a separately approved smoke/job."""
     check_runtime()
@@ -100,6 +113,7 @@ def load_training_model(config, cache_dir=None):
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise RuntimeError("CUDA with BF16 support is required")
+    check_optimized_kernels()
     snapshot = Path(
         snapshot_download(
             config.model_id,

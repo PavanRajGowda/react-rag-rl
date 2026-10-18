@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from grpo_training.data import RewardLabel
 from grpo_training.replay import GroupRequiresRetry, QuestionGroup, replay_rows
-from grpo_training.rewards import episode_reward
+from grpo_training.rewards import group_outcome
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,22 @@ class PreparedUpdate:
     @property
     def token_count(self):
         return sum(len(row["target_ids"]) for row in self.rows())
+
+
+def group_advantages(values, config, batch_std, *, positive_only=False):
+    """Center, scale, then optionally clip negatives; do not re-center afterward."""
+    mean = statistics.mean(values)
+    raw = tuple(value - mean for value in values)
+    std = statistics.stdev(values) if config.scale_rewards == "group" else batch_std
+    normalized = (
+        tuple(value / (std + 1e-4) for value in raw)
+        if config.scale_rewards != "none"
+        else raw
+    )
+    final = (
+        tuple(max(0.0, value) for value in normalized) if positive_only else normalized
+    )
+    return raw, normalized, final
 
 
 def prepare_update(groups, labels):
@@ -80,25 +96,24 @@ def prepare_update(groups, labels):
         raise GroupRequiresRetry(
             "Reject update with a technical failure; never shrink its groups"
         )
-    rewards = tuple(
-        episode_reward(e.question.id, e.status, e.answer, by_id[e.question.id]).reward
-        for e in episodes
-    )
+    outcomes = tuple(group_outcome(g, by_id[g.episodes[0].question.id]) for g in groups)
+    rewards = tuple(value for outcome in outcomes for value in outcome.rewards)
     batch_std = statistics.stdev(rewards)
     signals = []
-    offset = 0
-    for group in groups:
-        values = rewards[offset : offset + config.num_generations]
-        mean = statistics.mean(values)
-        std = statistics.stdev(values) if config.scale_rewards == "group" else batch_std
-        for episode, reward in zip(group.episodes, values, strict=True):
-            advantage = reward - mean
-            if config.scale_rewards != "none":
-                advantage /= std + 1e-4
+    for group, outcome in zip(groups, outcomes, strict=True):
+        _, _, advantages = group_advantages(
+            outcome.rewards,
+            config,
+            batch_std,
+            positive_only=config.reward == "number_match_turn_efficiency"
+            and outcome.all_correct,
+        )
+        for episode, reward, advantage in zip(
+            group.episodes, outcome.rewards, advantages, strict=True
+        ):
             signals.append(
                 EpisodeSignal(episode.episode_id, episode.group_id, reward, advantage)
             )
-        offset += config.num_generations
     prepared = PreparedUpdate(groups, tuple(signals))
     if not prepared.token_count:
         raise ValueError("Update has no sampled tokens to train")

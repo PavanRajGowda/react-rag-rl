@@ -307,11 +307,13 @@ def run_training(
                 )
                 if config.dynamic_sampling and pending is not None:
                     from grpo_training.recovery import subset_capture
-                    from grpo_training.sampling import mixed_reward
+                    from grpo_training.sampling import has_learning_signal
 
                     label_map = {label.id: label for label in labels}
                     useful = tuple(
-                        g for g in pending.prepared.groups if mixed_reward(g, label_map)
+                        g
+                        for g in pending.prepared.groups
+                        if has_learning_signal(g, label_map)
                     )
                     pending = (
                         subset_capture(pending, useful, labels) if useful else None
@@ -328,7 +330,7 @@ def run_training(
                     audit(
                         {
                             "kind": "batch_skipped",
-                            "reason": "no_mixed_reward_groups"
+                            "reason": "no_learning_signal_groups"
                             if config.dynamic_sampling
                             else "no_complete_trustworthy_groups",
                             "round": progress.round_index - 1,

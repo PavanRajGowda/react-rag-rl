@@ -47,6 +47,7 @@ class TrainingConfig:
     beta: float = 0.0
     num_iterations: int = 1
     reward: str = "number_match_0_1"
+    turn_penalty_lambda: float = 0.4  # Used only by number_match_turn_efficiency.
     vllm_mode: str = "colocate"
     vllm_importance_sampling_correction: bool = True
     epsilon_low: float = 0.2
@@ -104,6 +105,7 @@ class TrainingConfig:
             "epsilon_low",
             "epsilon_high",
             "vllm_importance_sampling_cap",
+            "turn_penalty_lambda",
         ):
             value = getattr(self, name)
             if (
@@ -124,6 +126,15 @@ class TrainingConfig:
             raise ValueError("Invalid sampling, warmup, dropout or KL range")
         if self.max_trajectory_attempts > 3 or self.max_consecutive_empty_batches > 10:
             raise ValueError("Recovery attempt/circuit-breaker limits are too large")
+        if self.turn_penalty_lambda < 0:
+            raise ValueError("turn_penalty_lambda must be nonnegative")
+        if (
+            self.reward == "number_match_turn_efficiency"
+            and self.turn_penalty_lambda * (self.max_turns - 1) >= 1
+        ):
+            raise ValueError(
+                "Choose turn_penalty_lambda * (max_turns - 1) < 1 so every correct reward stays above incorrect reward 0"
+            )
         if self.num_generations < 2:
             raise ValueError("GRPO needs at least two episodes per question")
         if (
@@ -157,7 +168,7 @@ class TrainingConfig:
             "scheduler": {"constant_with_warmup"},
             "loss_type": {"dapo"},
             "scale_rewards": {"group", "batch", "none"},
-            "reward": {"number_match_0_1"},
+            "reward": {"number_match_0_1", "number_match_turn_efficiency"},
             "vllm_mode": {"colocate"},
         }
         for name, values in supported.items():
