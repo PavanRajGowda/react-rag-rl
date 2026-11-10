@@ -1,85 +1,58 @@
-"""T2-RAGBench Number Match; Yes/No predictions normalize to 1/0."""
+"""Normalized short-answer exact match and token F1; no numeric scale matching."""
 
 import re
-from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
+import string
+from collections import Counter
+
+
+def normalize_text(value):
+    """Canonicalize an answer using the evaluator's case, punctuation, article and
+    whitespace rules. Used for answer metrics rather than modifying generated output.
+    """
+    text = str(value or "").lower()
+    text = text.translate(str.maketrans("", "", string.punctuation))
+    text = re.sub(r"\b(a|an|the)\b", " ", text)
+    return " ".join(text.split())
 
 
 def boolean_value(value):
-    if not isinstance(value, str):
-        return None
-    match = re.fullmatch(r"\s*(yes|no)[.!]?\s*", value, re.IGNORECASE)
-    return match.group(1).casefold() if match else None
+    """Return normalized "yes" or "no", or None when the answer is not Boolean text."""
+    text = normalize_text(value)
+    return text if text in {"yes", "no"} else None
 
 
-def extract_numeric_value(value):
-    if value is None or isinstance(value, bool):
-        return None
-    boolean = boolean_value(value)
-    if boolean is not None:
-        return Decimal(1) if boolean == "yes" else Decimal(0)
-    text = str(value).strip().replace("−", "-")
-    negative = text.startswith("(") and text.endswith(")")
-    if negative:
-        text = text[1:-1].strip()
-    match = re.fullmatch(
-        r"[$€£]?\s*([+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(%)?",
-        text,
-    )
-    if not match:
-        return None
-    try:
-        number = Decimal(match.group(1).replace(",", ""))
-        if not number.is_finite():
-            return None
-        if negative:
-            number = -abs(number)
-        return number / 100 if match.group(2) else number
-    except InvalidOperation:
-        return None
-
-
-def numeric_value_match(pred, gold, epsilon=1e-2):
-    pred_value, gold_value = extract_numeric_value(pred), extract_numeric_value(gold)
-    if pred_value is None or gold_value is None:
+def token_f1(pred, gold):
+    """Return multiset token-overlap F1 after answer normalization. A mismatched
+    yes/no/noanswer response or an empty token sequence receives 0.0; repeated tokens
+    are counted with their multiplicity.
+    """
+    normalized_p, normalized_g = normalize_text(pred), normalize_text(gold)
+    if (
+        normalized_p in {"yes", "no", "noanswer"}
+        or normalized_g in {"yes", "no", "noanswer"}
+    ) and normalized_p != normalized_g:
         return 0.0
-    threshold = Decimal(str(epsilon))
-    if not threshold.is_finite() or threshold <= 0:
-        raise ValueError("epsilon must be finite and positive")
-    pred_abs, gold_abs = abs(pred_value), abs(gold_value)
-    if pred_abs < threshold and gold_abs < threshold:
-        return 1.0
-    if not pred_abs or not gold_abs:
+    p, g = normalized_p.split(), normalized_g.split()
+    if not p or not g:
         return 0.0
-    # Algebraically equivalent to ratio * 10**(-round(log10(ratio))),
-    # using log differences to avoid overflow/underflow of extreme ratios.
-    with localcontext() as context:
-        context.prec = 40
-        log_ratio = pred_abs.log10() - gold_abs.log10()
-        power = log_ratio.to_integral_value(rounding=ROUND_HALF_EVEN)
-        normalized = Decimal(10) ** (log_ratio - power)
-        return float(abs(normalized - 1) < threshold)
+    overlap = sum((Counter(p) & Counter(g)).values())
+    return 2 * overlap / (len(p) + len(g))
 
 
 def score_answer(pred, gold):
-    gold_number = extract_numeric_value(gold)
-    if gold_number is None:
-        return {
-            "match_type": "unsupported_gold",
-            "score": None,
-            "number_match": None,
-            "sign_agrees": None,
-            "prediction_valid": False,
-        }
-    predicted = extract_numeric_value(pred)
-    score = numeric_value_match(pred, gold)
+    """Return exact/normalized match and token-overlap metrics for predicted versus gold
+    answer text. This is deterministic answer scoring, not an LLM-judge call.
+    """
+    if not isinstance(gold, str) or not gold.strip():
+        raise ValueError("Nonblank text gold required")
+    p, g = normalize_text(pred), normalize_text(gold)
+    exact = float(p == g and bool(p))
     return {
-        "match_type": "number_match",
-        "score": score,
-        "number_match": score,
-        "sign_agrees": (predicted >= 0) == (gold_number >= 0)
-        if predicted is not None
-        else None,
-        "prediction_valid": predicted is not None,
-        "normalized_prediction": str(predicted) if predicted is not None else None,
-        "normalized_gold": str(gold_number),
+        "match_type": "exact_match",
+        "score": exact,
+        "exact_match": exact,
+        "token_f1": token_f1(pred, gold),
+        "prediction_valid": bool(p),
+        "normalized_prediction": p,
+        "normalized_gold": g,
     }

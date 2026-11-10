@@ -3,17 +3,18 @@
 import json
 import re
 from collections import Counter
-from decimal import Decimal
 
+from baseline_agent.evidence import evidence_id
 from baseline_agent.protocol import ProtocolError, parse_action
-from baseline_agent.scoring import extract_numeric_value
+from baseline_agent.scoring import normalize_text, score_answer
 
 
 def diagnose(trace, reference_metadata=None):
     """Derive diagnostics without modifying scores, traces or model inputs."""
     turns, searches = trace.get("turns", []), trace.get("searches", [])
     rag = trace.get("evaluation_mode", "rag") == "rag"
-    gold = trace.get("retrieval_validation", {}).get("gold_context_id")
+    gold_ids = trace.get("retrieval_validation", {}).get("gold_document_ids") or ()
+    gold = {gold_ids} if isinstance(gold_ids, str) else set(gold_ids)
     attempts, failures = Counter(), Counter()
     format_errors = []
     answer_turn = None
@@ -43,7 +44,7 @@ def diagnose(trace, reference_metadata=None):
             format_errors.append(
                 {"turn": turn.get("turn"), "kind": kind, "message": str(error)}
             )
-    seen_requests, seen_sets, seen_ids = set(), set(), set()
+    seen_requests, seen_sets, seen_ids, seen_passages = set(), set(), set(), set()
     repeated_requests = repeated_sets = no_new = after_hit = 0
     first_hit = first_turn = first_rank = None
     reasons = Counter()
@@ -56,39 +57,29 @@ def diagnose(trace, reference_metadata=None):
         repeated_requests += key in seen_requests
         seen_requests.add(key)
         docs = response.get("results", [])
-        ids = [d.get("context_id") for d in docs if d.get("context_id")]
+        ids = [evidence_id(d) for d in docs]
         group = tuple(sorted(set(ids)))
         repeated_sets += bool(group) and group in seen_sets
         if group:
             seen_sets.add(group)
-        no_new += not (set(ids) - seen_ids)
-        seen_ids.update(ids)
+        no_new += not (set(ids) - seen_passages)
+        seen_passages.update(ids)
+        document_ids = [d["document_id"] for d in docs]
+        seen_ids.update(document_ids)
         after_hit += first_hit is not None
-        if gold and gold in ids and first_hit is None:
+        if gold and gold <= seen_ids and first_hit is None:
             first_hit, first_turn, first_rank = (
                 index,
                 search.get("turn"),
-                ids.index(gold) + 1,
+                max(
+                    (i + 1 for i, d in enumerate(docs) if d["document_id"] in gold),
+                    default=1,
+                ),
             )
         if response.get("status") == "error":
             reasons[response.get("code", "unspecified_api_error")] += 1
         elif not ids:
             reasons["empty_results"] += 1
-        if response.get("match_method") == "broad_query":
-            reasons["company_unresolved_broad_fallback"] += 1
-        # Evaluation only: compare applied filters with canonical document metadata.
-        # Broad fallback has no issuer/year filter and must not count as exclusion.
-        filters = response.get("applied_filters", {})
-        if reference_metadata and rag:
-            if filters.get("report_year") is not None and filters[
-                "report_year"
-            ] != reference_metadata.get("report_year"):
-                reasons["reference_excluding_year_filter"] += 1
-            if (
-                filters.get("company_ids")
-                and reference_metadata.get("company_id") not in filters["company_ids"]
-            ):
-                reasons["reference_excluding_company_filter"] += 1
     if repeated_requests:
         reasons["repeated_request"] = repeated_requests
     if format_errors:
@@ -96,15 +87,10 @@ def diagnose(trace, reference_metadata=None):
     if trace.get("status") in ("infrastructure_error", "postprocessing_error"):
         reasons[trace["status"]] += 1
     pred, reference = (
-        extract_numeric_value(trace.get("answer")),
-        extract_numeric_value(trace.get("gold_answer")),
+        normalize_text(trace.get("answer")),
+        normalize_text(trace.get("gold_answer")),
     )
-    strict = bool(
-        pred is not None
-        and reference is not None
-        and abs(pred - reference)
-        <= max(Decimal("0.000001"), abs(reference) * Decimal("0.01"))
-    )
+    strict = pred == reference and bool(pred)
     scored = trace.get("validation", {}).get("score") is not None
     active = (
         answer_turn.get("retrieval_diagnostic", {}).get("gold_context_in_prompt")
@@ -121,7 +107,7 @@ def diagnose(trace, reference_metadata=None):
         "gold": trace.get("gold_answer"),
         "answer": trace.get("answer"),
         "scored": scored,
-        "nm": trace.get("validation", {}).get("score"),
+        "em": trace.get("validation", {}).get("score"),
         "exact": bool(
             trace.get("answer") is not None
             and " ".join(str(trace["answer"]).split())
@@ -132,17 +118,10 @@ def diagnose(trace, reference_metadata=None):
         "strict": strict if scored else None,
         "normalized_prediction": str(pred) if pred is not None else None,
         "normalized_gold": str(reference) if reference is not None else None,
-        "sign_disagreement": pred is not None
-        and reference is not None
-        and pred * reference < 0,
-        "scale_disagreement": bool(
-            pred is not None
-            and reference is not None
-            and reference != 0
-            and trace.get("validation", {}).get("score") == 1
-            and abs(abs(pred / reference) - 1) > Decimal("0.01")
-        ),
-        "gold_id": gold,
+        "token_f1": score_answer(trace.get("answer"), trace["gold_answer"])["token_f1"]
+        if trace.get("gold_answer")
+        else None,
+        "gold_id": sorted(gold),
         "ever": first_hit is not None if rag and gold else None,
         "reference_metadata": reference_metadata,
         "active": active,

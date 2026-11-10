@@ -5,15 +5,16 @@ from dataclasses import replace
 
 import pytest
 
-from grpo_training.advantages import prepare_update
-from grpo_training.data import PreparedSplit, RewardLabel, sample_training_questions
-from grpo_training.metrics import pair, rollout_metrics
-from grpo_training.replay import QuestionGroup
 from tests.test_grpo_advantages import make_group
-from tests.test_grpo_replay import ANSWER, CONFIG, QUESTION, SEARCH, recorder, submit
+from tests.agent_fixtures import ANSWER, CONFIG, QUESTION, SEARCH, recorder, submit
+from tinker_training.advantages import prepare_update
+from tinker_training.data import PreparedSplit, RewardLabel, sample_training_questions
+from tinker_training.metrics import pair, rollout_metrics
+from tinker_training.replay import QuestionGroup
 
 
 def test_retrieval_variation_does_not_change_rewards_or_advantages():
+    """Verify retrieval variation does not change rewards or advantages."""
     config = replace(CONFIG, questions_per_update=1)
     a, b = recorder(0, config=config), recorder(1, config=config)
     submit(a, SEARCH)
@@ -33,7 +34,7 @@ def test_retrieval_variation_does_not_change_rewards_or_advantages():
     assert group["retrieval"]["ever"] == pair(2, 2)
     assert group["retrieval"]["repeated_requests"] == pair(1, 3)
     assert group["retrieval"]["no_new_context"] == pair(1, 3)
-    assert group["answer_diversity"]["distinct_numeric_values"] == 1
+    assert group["answer_diversity"]["distinct_normalized_values"] == 1
     assert group["quality_metrics"]["repeated_request_fraction"]["varies"]
     assert group["quality_metrics"]["repeated_request_fraction"]["mean"] == 0.25
     assert not group["quality_metrics"]["reference_ever"]["varies"]
@@ -44,6 +45,7 @@ def test_retrieval_variation_does_not_change_rewards_or_advantages():
 
 
 def test_no_search_fraction_is_unavailable_not_zero():
+    """Verify no search fraction is unavailable not zero."""
     group = make_group()
     gold = RewardLabel(group.episodes[0].question.id, "42", "reference")
     metrics, _ = rollout_metrics(prepare_update([group], [gold]), [gold])
@@ -55,6 +57,7 @@ def test_no_search_fraction_is_unavailable_not_zero():
 
 
 def test_seeded_train_subset_preserves_labels_and_rng():
+    """Verify seeded train subset preserves labels and rng."""
     episodes = [make_group(number=i).episodes[0] for i in range(12)]
     prepared = PreparedSplit(
         "train",

@@ -1,31 +1,30 @@
 """Pure diagnostics/live reader tests; no GPU, TensorBoard or cloud operations."""
 
 from dataclasses import replace
-from types import SimpleNamespace as NS
 
 import pytest
-from fastapi.testclient import TestClient
 
-from baseline_agent.dashboard import diagnose as dashboard_diagnose
 from baseline_agent.diagnostics import diagnose
-from grpo_training.advantages import prepare_update
-from grpo_training.dashboard import ModalMirror, Reader, create_app
-from grpo_training.data import RewardLabel
-from grpo_training.metrics import (
+from baseline_agent.diagnostics import diagnose as baseline_diagnose
+from tests.agent_fixtures import ANSWER, CONFIG, QUESTION, SEARCH, recorder, submit
+from tinker_training.advantages import prepare_update
+from tinker_training.data import RewardLabel
+from tinker_training.metrics import (
     distribution,
     episode_diagnostic,
     merge_rates,
     pair,
     rollout_metrics,
-    sampling_metrics,
 )
-from grpo_training.observability import atomic_json
-from grpo_training.replay import QuestionGroup
-from grpo_training.trainer import CapturedUpdate
-from tests.test_grpo_replay import ANSWER, CONFIG, QUESTION, SEARCH, recorder, submit
+from tinker_training.observability import atomic_json
+from tinker_training.replay import QuestionGroup
+from tinker_training.results import Reader
 
 
 def observed_rollout():
+    """Build a prepared update with controller/retrieval audit information for metric
+    tests.
+    """
     config = replace(CONFIG, questions_per_update=1)
     first, second = recorder(0, config=config), recorder(1, config=config)
     submit(first, SEARCH)
@@ -41,10 +40,11 @@ def observed_rollout():
 
 
 def test_training_uses_same_baseline_diagnostic_function():
-    assert dashboard_diagnose is diagnose
+    """Verify training uses same baseline diagnostic function."""
+    assert baseline_diagnose is diagnose
     prepared, label = observed_rollout()
     metrics, traces = rollout_metrics(prepared, [label])
-    assert metrics["rates"]["nm"] == pair(1, 2)
+    assert metrics["rates"]["em"] == pair(1, 2)
     assert metrics["rates"]["ever"] == pair(2, 2)
     assert metrics["rates"]["active"] == pair(1, 2)
     assert metrics["rates"]["groups_with_signal"] == pair(1, 1)
@@ -57,35 +57,26 @@ def test_training_uses_same_baseline_diagnostic_function():
 
 
 def test_terminal_search_failure_is_not_an_accuracy_zero():
+    """Verify terminal search failure is not an accuracy zero."""
     prepared, label = observed_rollout()
     failed = replace(
         prepared.groups[0].episodes[0], status="infrastructure_error", answer=None
     )
     diagnostic, _ = episode_diagnostic(failed, label)
-    assert diagnostic["scored"] is False and diagnostic["nm"] is None
+    assert diagnostic["scored"] is False and diagnostic["em"] is None
 
 
 def test_rate_merging_uses_counts_not_average_percentages():
+    """Verify rate merging uses counts not average percentages."""
     assert merge_rates([pair(1, 1), pair(0, 9)]) == pair(1, 10)
     assert merge_rates([])["value"] is None
     assert distribution([1, 2, 3])["std"] == 1
 
 
-def test_raw_sampling_cap_count_is_not_inferred_from_capped_weights():
-    prepared, _ = observed_rollout()
-    old = tuple(
-        tuple(v + 2 for v in row["sampling_logprobs"][-len(row["target_ids"]) :])
-        for row in prepared.rows()
-    )
-    # Old logprobs must remain <=0; add only .1 if a toy sampled logprob is too near zero.
-    old = tuple(tuple(min(v, -0.01) for v in row) for row in old)
-    captured = CapturedUpdate(prepared, old, tuple((2.0,) * len(v) for v in old))
-    metrics = sampling_metrics(captured)
-    assert metrics["raw_correction_above_cap"]["numerator"] > 0
-    assert metrics["applied_correction"]["max"] == 2
-
-
 def fixture_files(root):
+    """Write synthetic run/observability artifacts used by dashboard readers and export
+    endpoints.
+    """
     prepared, label = observed_rollout()
     rollout, traces = rollout_metrics(prepared, [label])
     rollout.update(
@@ -126,16 +117,18 @@ def fixture_files(root):
 
 
 def test_reader_deduplicates_reuse_weights_loss_and_excludes_future_steps(tmp_path):
+    """Verify reader deduplicates reuse weights loss and excludes future steps."""
     fixture_files(tmp_path)
     snapshot = Reader(tmp_path).snapshot(20)
     assert snapshot["rollouts"] == 1 and len(snapshot["episodes"]) == 2
     assert snapshot["weighted_loss"]["value"] == pytest.approx(2.8)
     assert snapshot["series"][-1]["rolling_loss"] == pytest.approx(2.8)
     assert [r["step"] for r in snapshot["reference"]] == [0, 1, 2]
-    assert snapshot["rates"]["nm"] == pair(1, 2)
+    assert snapshot["rates"]["em"] == pair(1, 2)
 
 
 def test_batch_history_distinguishes_configured_actual_and_reused_batches(tmp_path):
+    """Verify batch history distinguishes configured actual and reused batches."""
     root = tmp_path / "observability"
     fixture_files(root)
     atomic_json(
@@ -163,90 +156,55 @@ def test_batch_history_distinguishes_configured_actual_and_reused_batches(tmp_pa
     assert len(snapshot["steps"]) == 1  # Windowing does not double-count batch history.
 
 
-def test_live_api_trace_and_csv(tmp_path):
-    fixture_files(tmp_path)
-    with TestClient(create_app(tmp_path)) as client:
-        assert client.get("/").status_code == 200
-        assert client.get("/api/snapshot").json()["committed_step"] == 2
-        assert client.get("/api/snapshot?window=-1").status_code == 400
-        assert (
-            client.get(f"/api/traces/{'b' * 24}").json()["question"]["id"]
-            == QUESTION.id
+def test_startup_failure_preserves_completed_steps_and_traceback(tmp_path):
+    """Verify startup failure preserves completed steps and traceback."""
+    import json
+
+    from tinker_training.observability import atomic_json, publish_runtime_failure
+
+    root = tmp_path / "observability"
+    atomic_json(
+        root / "index.json",
+        {"steps": [{"step": 3}], "references": [], "committed_step": 3},
+    )
+    atomic_json(root / "live.json", {"phase": "completed", "max_steps": 10})
+    commits = []
+    try:
+        raise ValueError("Restored adapter bytes disagree with checkpoint policy")
+    except ValueError as error:
+        publish_runtime_failure(
+            tmp_path, "checkpoint_restore", error, durable=lambda: commits.append(True)
         )
-        assert client.get("/api/traces/not-a-key").status_code == 400
-        csv = client.get("/api/export/steps")
-        assert csv.status_code == 200 and "gradient_norm" in csv.text
+    live = json.loads((root / "live.json").read_text())
+    assert live["phase"] == "failed" and live["committed_step"] == 3
+    assert live["max_steps"] == 10
+    assert live["failure"]["stage"] == "checkpoint_restore"
+    assert "ValueError" in live["failure"]["traceback"]
+    assert commits == [True]
 
 
-def test_remote_mirror_only_reads_new_immutable_files_and_keeps_last_good(tmp_path):
-    fixture_files(tmp_path / "remote")
-    calls = []
+def test_resume_phase_clears_old_failure_and_stale_counters(tmp_path):
+    """Verify resume phase clears old failure and stale counters."""
+    import json
 
-    class Volume:
-        def read_file(self, path):
-            calls.append(path)
-            if path == "run/run.json":
-                yield b'{"config": {"questions_per_update": 2, "num_generations": 4, "num_iterations": 2}}'
-                return
-            relative = path.split("observability/", 1)[1]
-            yield (tmp_path / "remote" / relative).read_bytes()
+    from tinker_training.observability import atomic_json, publish_runtime_phase
 
-        def iterdir(self, *args, **kwargs):
-            return []
-
-    mirror = ModalMirror("run", tmp_path / "local", volume=Volume())
-    mirror.sync()
-    assert mirror.status["error"] is None
-    calls.clear()
-    mirror.sync()
-    assert len(calls) == 2  # Only mutable live/index JSON on second refresh.
-    (tmp_path / "remote" / "index.json").write_text("invalid")
-    mirror.sync()
-    assert mirror.status["error"]
-    assert Reader(tmp_path / "local").snapshot()["committed_step"] == 2
-
-
-def test_mirror_rejects_unsafe_paths(tmp_path):
-    mirror = ModalMirror("run", tmp_path, volume=NS())
-    with pytest.raises(ValueError):
-        mirror.download("../run.json")
-
-
-def test_dynamic_candidate_totals_survive_observer_restart(tmp_path):
-    from grpo_training.checkpoints import Progress
-    from grpo_training.observability import RunObserver
-
-    totals = {
-        "groups": 3,
-        "accepted": 1,
-        "episodes": 12,
-        "correct": 7,
-        "generated_tokens": 100,
-    }
-    atomic_json(tmp_path / "observability/live.json", {"dynamic_totals": totals})
-    observer = RunObserver(
-        NS(root=tmp_path, durable=lambda: None),
-        NS(state=NS(global_step=0)),
-        NS(config=CONFIG),
-        NS(),
-        reference=NS(),
-        writer=NS(flush=lambda: None),
+    root = tmp_path / "observability"
+    atomic_json(
+        root / "index.json", {"steps": [], "references": [], "committed_step": 3}
     )
-    observer.reference_step = lambda step: None
-    observer.start(Progress())
-    observer.event(
+    atomic_json(
+        root / "live.json",
         {
-            "kind": "dynamic_group",
-            "accepted": True,
-            "episodes": 4,
-            "correct": 2,
-            "generated_tokens": 50,
-        }
+            "phase": "failed",
+            "failure": {"message": "old failure"},
+            "completed": 80,
+            "max_steps": 10,
+        },
     )
-    assert observer.status["dynamic_totals"] == {
-        "groups": 4,
-        "accepted": 2,
-        "episodes": 16,
-        "correct": 9,
-        "generated_tokens": 150,
-    }
+    publish_runtime_phase(tmp_path, "checkpoint_restore")
+    live = json.loads((root / "live.json").read_text())
+    assert live["phase"] == "checkpoint_restore"
+    assert live["committed_step"] == 3 and live["max_steps"] == 10
+    assert "failure" not in live and "completed" not in live
+    assert live["failure_history"] == [{"message": "old failure"}]

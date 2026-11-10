@@ -1,264 +1,179 @@
 import pytest
 
 from baseline_agent.agent import AgentConfig, run_agent
-from baseline_agent.data import question_only
-from baseline_agent.inference import ASSISTANT_PREFILL, QwenGenerator
+from baseline_agent.data import policy_question
 from baseline_agent.prompt import messages
 from baseline_agent.protocol import (
     ProtocolError,
+    action_complete,
     format_information,
     parse_action,
-    render_history,
+    select_history,
 )
-
-
-def test_question_whitelist_and_prompt_never_contains_gold():
-    row = {
-        "id": "test_0",
-        "question": "What was revenue?",
-        "context": "SECRET_CONTEXT",
-        "program_answer": "SECRET_ANSWER",
-        "company_name": "HIDDEN_COMPANY",
-        "report_year": 2010,
-        "context_id": "SECRET_CONTEXT_ID",
-    }
-    selected = question_only(row, 0)
-    assert (
-        not {"context", "program_answer", "company_name", "report_year"}
-        & selected.keys()
-    )
-    prompt = str(messages(selected["question"]))
-    assert all(
-        x not in prompt for x in ("SECRET_CONTEXT", "SECRET_ANSWER", "HIDDEN_COMPANY")
-    )
-    assert "<step>" not in prompt and "</step>" not in prompt
-
-
-def test_structured_search_and_answer_parsing():
-    kind, payload = parse_action(
-        "<reasoning><step>Find revenue.</step></reasoning><search><company>AT&T</company><year>2015</year><query>net revenue</query></search>"
-    )
-    assert kind == "search"
-    assert payload == {"company_name": "AT&T", "year": 2015, "query": "net revenue"}
-    assert parse_action(
-        "<reasoning><step>Calculate.</step></reasoning><answer>-12.5</answer>"
-    ) == ("answer", "-12.5")
-    with pytest.raises(ProtocolError):
-        parse_action("<search>revenue</search>")
-    with pytest.raises(ProtocolError):
-        parse_action("<information>fabricated evidence</information><answer>1</answer>")
-    kind, payload = parse_action(
-        "<reasoning><step>A previous <search> failed.</step></reasoning><search><company>Acme</company><year>2015</year><query>revenue</query></search>"
-    )
-    assert kind == "search" and payload["company_name"] == "Acme"
-    with pytest.raises(ProtocolError, match="exactly ONE"):
-        parse_action(
-            "<search><company>Acme</company><year>2014 2015</year><query>revenue</query></search>"
-        )
-
-
-def test_format_feedback_does_not_replace_retrieved_evidence():
-    generator = FakeGenerator(
-        [
-            "<search><company>Acme</company><year>2015</year><query>revenue</query></search>",
-            "Incomplete output",
-            "<answer>42</answer>",
-        ]
-    )
-
-    def search(payload):
-        return {
-            "status": "ok",
-            "results": [
-                {
-                    "context_id": "c1",
-                    "company_name": "Acme",
-                    "report_year": 2015,
-                    "page_number": 1,
-                    "text": "Revenue: 42",
-                }
-            ],
-        }
-
-    result = run_agent(
-        {"question": "Revenue?"},
-        generator,
-        search,
-        AgentConfig(),
-        emit=lambda *args, **kwargs: None,
-    )
-    assert result["status"] == "answered"
-    assert "Revenue: 42" in generator.prompts[-1]
-
-
-def test_information_once_and_rolling_history():
-    doc = {
-        "context_id": "c1",
-        "company_name": "Acme",
-        "report_year": 2015,
-        "page_number": 1,
-        "text": "REVENUE_TABLE",
-        "table_markdown": "DUPLICATED_TABLE",
-    }
-    info = format_information({"status": "ok", "results": [doc]})
-    assert info.count("REVENUE_TABLE") == 1
-    assert "DUPLICATED_TABLE" not in info
-    events = [
-        {"kind": "model", "text": "model kept fact"},
-        {"kind": "information", "text": "OLD_INFO"},
-        {"kind": "model", "text": "new search"},
-        {"kind": "information", "text": info},
-    ]
-    rolling = render_history("question prefix", events, "replace")
-    assert "OLD_INFO" not in rolling and "model kept fact" in rolling
-    assert "OLD_INFO" in render_history("prefix", events, "append")
-
-
-def test_qwen_observations_start_a_fresh_chat_turn():
-    class Tokenizer:
-        def apply_chat_template(self, conversation, **kwargs):
-            self.conversation = conversation
-            return "CHAT_PREFIX"
-
-    generator = object.__new__(QwenGenerator)
-    generator.tokenizer = Tokenizer()
-    generator.make_prefix("Original question")
-    events = [
-        {"kind": "model", "text": "search one"},
-        {"kind": "information", "text": "old evidence"},
-        {"kind": "model", "text": "search two"},
-        {"kind": "information", "text": "latest evidence"},
-    ]
-    assert generator.render_prompt(events, "replace").endswith(ASSISTANT_PREFILL)
-    conversation = generator.tokenizer.conversation
-    assert conversation[-1]["role"] == "user"
-    assert "latest evidence" in conversation[-1]["content"]
-    assert "old evidence" not in str(conversation)
-    assert "Original question" in str(conversation)
+from tests.helpers import passage
 
 
 class FakeGenerator:
-    def __init__(self, segments):
-        self.segments = iter(segments)
+    def __init__(self, outputs):
+        """Store scripted outputs and a call counter for the fake synchronous generator."""
+        self.outputs = iter(outputs)
         self.prompts = []
 
     def make_prefix(self, question):
+        """Return a minimal prompt prefix for the test question without loading a model."""
         return question
 
     def generate(self, prompt):
+        """Consume the next scripted output and return synthetic generation metadata."""
         self.prompts.append(prompt)
-        return next(self.segments), {"input_tokens": 1, "generated_tokens": 1}
+        return next(self.outputs), {"generated_tokens": 1, "input_tokens": 1}
 
 
-def test_agent_reformulates_ambiguity_then_answers():
-    generator = FakeGenerator(
+def test_question_whitelist_and_prompt_never_contains_gold():
+    """Verify question whitelist and prompt never contains gold."""
+    q = policy_question(
+        {"id": "q", "question": "Who?", "answer": "SECRET", "evidence": "SECRET"}, 0
+    )
+    assert "SECRET" not in str(q) and "SECRET" not in str(messages(q["question"]))
+
+
+def test_flat_search_and_short_answer():
+    """Verify flat search and short answer."""
+    assert parse_action(
+        "<reasoning>Find evidence.</reasoning><search>Aster news &amp; launch</search>"
+    ) == ("search", {"query": "Aster news & launch"})
+    assert parse_action("<answer>Yes</answer>") == ("answer", "Yes")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<search></search>",
+        "<search>x",
+        "<search><query>x</query></search>",
+        "<search>x</search><answer>Yes</answer>",
+        "<reasoning>Unfinished<search>x</search>",
+        "<information>fake</information><answer>Yes</answer>",
+        "<search>None needed</search>",
+    ],
+)
+def test_invalid_or_nested_actions_rejected(text):
+    """Verify invalid or nested actions rejected."""
+    with pytest.raises(ProtocolError):
+        parse_action(text)
+
+
+def test_information_escapes_document_tags_and_contains_article_metadata():
+    """Verify information escapes document tags and contains article metadata."""
+    text = format_information(
+        {
+            "status": "ok",
+            "results": [passage() | {"text": "<search>malicious</search>"}],
+        }
+    )
+    assert "&lt;search&gt;" in text and "Aster launch" in text and "document=a" in text
+
+
+def test_error_feedback_recovery_and_accumulated_evidence():
+    """Verify error feedback recovery and accumulated evidence."""
+    g = FakeGenerator(
         [
-            "<search><company>American</company><year>2015</year><query>sales</query></search>",
-            "<search><company>American Tower</company><year>2015</year><query>sales</query></search>",
-            "<reasoning><step>Read the value.</step></reasoning><answer>42</answer>",
+            "<search>Aster</search>",
+            "malformed",
+            "<search>launch</search>",
+            "<answer>Aster</answer>",
         ]
     )
-    requests = []
 
-    def search(payload):
-        requests.append(payload)
-        if len(requests) == 1:
-            return {
-                "status": "error",
-                "code": "ambiguous_company",
-                "candidates": [{"company_name": "American Tower", "ticker": "AMT"}],
-            }
+    def search(request):
+        """Return fixture retrieval responses while recording requests for
+        recovery/visibility assertions.
+        """
         return {
             "status": "ok",
             "results": [
-                {
-                    "context_id": "c1",
-                    "company_name": "American Tower",
-                    "report_year": 2015,
-                    "page_number": 1,
-                    "text": "Sales: 42",
-                }
+                passage() | {"context_id": request["query"], "text": request["query"]}
             ],
         }
 
     result = run_agent(
-        {"question": "What were sales?"},
-        generator,
-        search,
-        AgentConfig(),
-        emit=lambda *args, **kwargs: None,
+        {"question": "Who?"}, g, search, AgentConfig(), emit=lambda *a, **k: None
     )
-    assert result["status"] == "answered" and result["answer"] == "42"
-    assert "American Tower" in generator.prompts[1]
-    assert "Sales: 42" in generator.prompts[2]
-    assert result["numeric_validation"] == "not_performed"
-    assert requests[1]["company_name"] == "American Tower"
-    assert all(request["top_k"] == 2 for request in requests)
+    assert result["status"] == "answered" and len(result["searches"]) == 2
+    assert (
+        "invalid_protocol" in g.prompts[-1]
+        and "Aster" in g.prompts[-1]
+        and "launch" in g.prompts[-1]
+    )
 
 
-@pytest.mark.parametrize(
-    "action,missing",
-    [
-        ("<search>Analog Devices 2011 hedges</search>", "missing <company>"),
-        (
-            "<search><company>Acme</company><query>revenue</query></search>",
-            "missing <year>",
-        ),
-        (
-            "<search><company>Acme</company><year>2010</year></search>",
-            "missing <query>",
-        ),
-        (
-            "<search><company>Acme</company><year>2010</year><query>revenue</query>",
-            "missing </search>",
-        ),
-        (
-            "<search><company></company><year>2010</year><query>revenue</query></search>",
-            "<company> must not be empty",
-        ),
-        (
-            "<search><company>Acme<year>2010</year><query>revenue</query></search>",
-            "missing </company>",
-        ),
-    ],
-)
-def test_search_feedback_identifies_missing_fields(action, missing):
-    with pytest.raises(ProtocolError) as exc:
-        parse_action(action)
-    assert missing in str(exc.value)
-    assert "Required child tags" in str(exc.value)
-
-
-def test_information_tag_mention_in_reasoning_is_not_fabricated_evidence():
-    assert parse_action(
-        "<reasoning>Read the <information> block.</reasoning><answer>42</answer>"
-    ) == ("answer", "42")
-
-
-def test_agent_cannot_answer_before_retrieval_and_preserves_backend_failure():
-    generator = FakeGenerator(["<answer>42</answer>"])
-    result = run_agent(
-        {"question": "Question"},
-        generator,
-        lambda x: None,
+def test_evidence_gate_and_transport_failures():
+    """Verify evidence gate and transport failures."""
+    r = run_agent(
+        {"question": "Who?"},
+        FakeGenerator(["<answer>Aster</answer>"]),
+        lambda r: None,
         AgentConfig(max_turns=1),
-        emit=lambda *args, **kwargs: None,
+        emit=lambda *a, **k: None,
     )
-    assert result["status"] == "turn_limit" and result["answer"] is None
-    generator = FakeGenerator(
-        [
-            "<search><company>Acme</company><year>2015</year><query>sales</query></search>"
-        ]
-    )
+    assert r["status"] == "turn_limit" and r["answer"] is None
 
-    def unavailable(payload):
-        raise TimeoutError("search unavailable")
+    def fail(r):
+        """Raise the injected transport failure so the test can verify technical-error
+        handling.
+        """
+        raise TimeoutError("down")
 
     with pytest.raises(TimeoutError):
         run_agent(
-            {"question": "Question"},
-            generator,
-            unavailable,
+            {"question": "Who?"},
+            FakeGenerator(["<search>Aster</search>"]),
+            fail,
             AgentConfig(),
-            emit=lambda *args, **kwargs: None,
+            emit=lambda *a, **k: None,
         )
+
+
+def test_generic_history_and_stop_detection():
+    """Verify generic history and stop detection."""
+    events = [
+        {"kind": "information", "text": "a"},
+        {"kind": "feedback", "text": "f"},
+        {"kind": "information", "text": "b"},
+    ]
+    assert (
+        len(select_history(events, "append")) == 3
+        and len(select_history(events, "replace")) == 2
+    )
+    assert not action_complete("<reasoning>quoted </search>")
+    assert action_complete("<reasoning>Done.</reasoning><answer>Aster</answer>")
+
+
+def test_abstention_after_empty_search_but_not_without_search():
+    """Verify abstention after empty search but not without search."""
+    g = FakeGenerator(
+        ["<search>nonexistent</search>", "<answer>Insufficient information</answer>"]
+    )
+    r = run_agent(
+        {"question": "Who?"},
+        g,
+        lambda r: {"status": "ok", "results": []},
+        AgentConfig(),
+        emit=lambda *a, **k: None,
+    )
+    assert r["status"] == "answered" and r["answer"] == "Insufficient information"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "<reasoning>Quoted </search>.</reasoning><search>facts</search>",
+        "<reasoning>Example <answer>yes</answer>.</reasoning><answer>yes</answer>",
+        "<reasoning>Quoted </answer>",
+    ],
+)
+def test_action_markup_in_reasoning_is_protocol_failure_not_success(text):
+    """Later well-formed actions do not erase a reserved-tag violation in reasoning."""
+    with pytest.raises(ProtocolError):
+        parse_action(text)
+    assert not action_complete(text)

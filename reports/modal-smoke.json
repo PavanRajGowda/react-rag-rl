@@ -1,8 +1,0 @@
-{
-  "corpus_version": "finqa-301676584646",
-  "elapsed_including_startup_seconds": 42.282067800173536,
-  "results": 3,
-  "context_preservation": true,
-  "metadata_filters": true,
-  "argument_error_handling": true
-}

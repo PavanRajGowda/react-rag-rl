@@ -4,143 +4,115 @@ import json
 import re
 from html import escape, unescape
 
+ACTION_STOP_SEQUENCES = ("</search>", "</answer>")
+ACTION_MARKUP = re.compile(r"</?(?:search|answer)>")
+
 
 class ProtocolError(ValueError):
-    pass
+    """A generated action failed the model-facing search/answer syntax contract."""
+
+    pass  # noqa: PIE790 -- keep the original body in this documentation-only edit.
 
 
 def action_complete(segment):
-    """A quoted closing action tag inside reasoning cannot stop generation."""
+    """Return whether the generated prefix contains one protocol-valid action."""
     if "</reasoning>" not in segment:
         return False
-    action = segment.rsplit("</reasoning>", 1)[-1].strip()
-    return bool(re.fullmatch(r"<(search|answer)>.*?</\1>", action, re.DOTALL))
+    try:
+        parse_action(segment)
+    except ProtocolError:
+        return False
+    return True
 
 
 def parse_action(segment):
+    """Parse one flat search or answer action after the last reasoning close tag. Returns
+    ("search", {"query": text}) or ("answer", text). Rejects missing closes, multiple
+    actions, child tags, empty content and invalid search text with ProtocolError.
+    """
     if "<reasoning>" in segment and "</reasoning>" not in segment:
         raise ProtocolError(
-            "Close the reasoning block before emitting an action. Do not quote action examples inside reasoning; then emit one search with company/year/query child tags, or a final answer if evidence is sufficient."
+            "Close </reasoning> before emitting one <search>query text</search> or <answer>short answer</answer> action."
         )
-    # Tag mentions in reasoning are not actions.
-    actions = segment.rsplit("</reasoning>", 1)[-1]
-    if "<information>" in actions:
-        raise ProtocolError("Only the search service may produce <information>.")
-    searches = list(
-        re.finditer(
-            r"<search>\s*<company>([^<>]+)</company>\s*<year>([^<>]+)</year>\s*<query>([^<>]+)</query>\s*</search>",
-            actions,
-            re.DOTALL,
-        )
-    )
-    answers = list(re.finditer(r"<answer>([^<>]*)</answer>", actions, re.DOTALL))
-    if len(searches) + len(answers) != 1:
-        example = "Required child tags inside search, in order: company (actual company from the question), year (one four-digit report year), query (specific evidence needed). Put each value between its opening and closing child tags. Do not copy documentation placeholders. If evidence is already sufficient, emit a numerical answer in answer tags instead of a search."
-        if "<search>" in actions:
-            # Last opening tag avoids swallowing an incidental earlier tag mention.
-            body = actions.rsplit("<search>", 1)[-1]
-            issues = []
-            if "</search>" not in body:
-                issues.append("missing </search> closing tag")
-            body = body.split("</search>", 1)[0]
-            if re.search(
-                r"\b(none needed|no search|calculation can be performed|no further search)\b",
-                body,
-                re.IGNORECASE,
-            ):
-                raise ProtocolError(
-                    "A search action requests evidence; it cannot mean 'no search needed'. Calculate from the available evidence and put the final value in answer tags, after closing reasoning."
-                )
-            for field in ("company", "year", "query"):
-                opening, closing = f"<{field}>", f"</{field}>"
-                if opening not in body:
-                    issues.append(f"missing {opening} field")
-                elif closing not in body:
-                    issues.append(f"missing {closing} closing tag")
-                elif body.count(opening) != 1 or body.count(closing) != 1:
-                    issues.append(f"duplicate {opening} field; provide it exactly once")
-                elif not body.split(opening, 1)[1].split(closing, 1)[0].strip():
-                    issues.append(f"{opening} must not be empty")
-            if issues:
-                raise ProtocolError(
-                    "Invalid search: " + "; ".join(issues) + ". " + example
-                )
+    if "</reasoning>" in segment:
+        reasoning, actions = segment.split("</reasoning>", 1)
+        if ACTION_MARKUP.search(reasoning):
             raise ProtocolError(
-                "Invalid search: fields must appear exactly once in company, year, query order with no extra text or nested tags. Produce one action per turn. "
-                + example
+                "Search/answer tags are reserved for actions and must not appear inside reasoning."
             )
+        actions = actions.strip()
+    else:
+        actions = segment.strip()
+    match = re.fullmatch(r"<(search|answer)>([^<>]*)</\1>", actions, re.DOTALL)
+    if not match:
         raise ProtocolError(
-            "Produce exactly one complete <search> or <answer> action. " + example
+            "Emit exactly one complete action after </reasoning>: <search>natural-language query</search> or <answer>short answer</answer>. Search is flat text; no company, year, query child tags or extra text."
         )
-    if answers:
-        value = answers[0].group(1).strip()
-        if not value:
-            raise ProtocolError("The <answer> is empty.")
-        return "answer", value
-    company, year, query = (unescape(x).strip() for x in searches[0].groups())
-    if company.casefold() in {"company name", "actual_company"} or query.casefold() in {
-        "financial evidence needed",
-        "specific_query",
-    }:
-        raise ProtocolError(
-            "Search fields contain documentation placeholders. Use the actual company from the original question and a specific financial query; do not copy example field values."
-        )
-    if not re.fullmatch(r"\d{4}", year):
-        raise ProtocolError(
-            f"The year field must contain exactly ONE four-digit report year; received {year!r}. Select one report year and put the financial periods being compared in the query."
-        )
-    if not company or len(company) > 200:
-        raise ProtocolError(
-            "<company> must contain 1–200 characters after trimming whitespace."
-        )
-    if not query or len(query) > 2000:
-        raise ProtocolError(
-            "<query> must contain 1–2000 characters after trimming whitespace."
-        )
-    if not 1900 <= int(year) <= 2100:
-        raise ProtocolError("<year> must be a report year between 1900 and 2100.")
-    return "search", {"company_name": company, "year": int(year), "query": query}
+    kind, value = match.group(1), unescape(match.group(2)).strip()
+    if not value:
+        raise ProtocolError(f"<{kind}> must not be empty.")
+    if kind == "search":
+        if len(value) > 2000:
+            raise ProtocolError("Search query must contain 1Ã¢â‚¬â€œ2000 characters.")
+        if re.search(
+            r"\b(none needed|no search needed|no further search)\b",
+            value,
+            re.IGNORECASE,
+        ):
+            raise ProtocolError(
+                "Search requests evidence. If sufficient, emit <answer> instead."
+            )
+        return kind, {"query": value}
+    return kind, value
 
 
 def format_information(result):
+    """Render a search response inside escaped information tags for the next prompt.
+    Preserves document identifiers and readable evidence while escaping embedded markup;
+    unknown response statuses raise RuntimeError.
+    """
     if result.get("status") == "error":
         body = json.dumps(result, ensure_ascii=False)
     elif result.get("status") == "ok":
         docs = []
         for doc in result["results"]:
-            # text already contains narrative and table. Do not append the
-            # overlapping table/pre_text/post_text a second time.
             docs.append(
-                f"[{doc['context_id']}] {doc['company_name']} | report year {doc['report_year']} | page {doc['page_number']}\n{doc['text']}"
+                (
+                    f"[{doc['context_id']}] document={doc['document_id']} | {doc['title']}"
+                    if "context_id" in doc
+                    else f"[{doc['document_id']}] {doc['title']}"
+                )
+                + (f" | source={doc['source']}" if doc.get("source") else "")
+                + (
+                    f" | published={doc['published_at']}"
+                    if doc.get("published_at")
+                    else ""
+                )
+                + f"\n{doc['text']}"
             )
         body = (
-            "\n\n".join(docs)
-            if docs
-            else "No matching contexts. Reformulate the search if necessary."
-        )
-        if result.get("message"):
-            metadata = {
-                key: result[key]
-                for key in (
-                    "match_method",
-                    "message",
-                    "requested_company",
-                    "requested_year",
-                    "applied_filters",
-                    "ambiguous",
-                    "candidates",
+            result.get("message", "")
+            + "\n\n"
+            + (
+                "\n\n".join(docs)
+                if docs
+                else result.get(
+                    "empty_message", "No matching passages. Reformulate the query."
                 )
-                if key in result
-            }
-            body = json.dumps(metadata, ensure_ascii=False) + "\n\n" + body
+            )
+        )
     else:
         raise RuntimeError("Unrecognized search-service response")
     return "<information>\n" + escape(body, quote=False) + "\n</information>"
 
 
 def select_history(events, context_mode):
-    if context_mode not in ("append", "replace"):
-        raise ValueError("context_mode must be append or replace")
+    """Select prompt-visible events for append, replace or legacy bounded context mode.
+    Append retains every event; other modes retain only the latest information block
+    while preserving model/feedback events.
+    """
+    if context_mode not in ("append", "replace", "bounded"):
+        raise ValueError("context_mode must be append, replace or bounded")
     latest = max(
         (i for i, x in enumerate(events) if x["kind"] == "information"), default=-1
     )
@@ -152,4 +124,8 @@ def select_history(events, context_mode):
 
 
 def render_history(prefix, events, context_mode):
+    """Join the selected event text onto an initial prompt prefix. This text renderer is
+    for legacy/history views; exact append-mode sampling uses TokenConversation IDs
+    instead of re-encoding this string.
+    """
     return prefix + "\n\n".join(x["text"] for x in select_history(events, context_mode))

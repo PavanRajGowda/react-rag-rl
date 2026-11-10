@@ -1,0 +1,40 @@
+{
+  "outcome_weight": 1.0,
+  "a": 0.31822543675118503,
+  "b": 0.19152072319679844,
+  "efficiency_cost": 0.12466124798070498,
+  "cost": 0.1,
+  "source": "historical test fixture; retired fit",
+  "source_sha256": "d15880b69c9c6173ae7e86c9f9b9841ddbce2bf2cc7bfd0baa504010f2f59dda",
+  "note": "Fixed relative-to-correctness calibration. B-pen cost 0.1 is a separate unfitted baseline. Efficiency remains a separate diagnostic, not included in B1-B3 advantages.",
+  "advantage_scaling": {
+    "reference": "B0",
+    "target_rms": 0.777005620221088,
+    "calibration_population": "All recovered complete groups; fixed historical trajectory pool",
+    "calibration_episodes": 632,
+    "calibration_tokens": 742863,
+    "calibration_sha256": "f1b537fc3551bdde8eeee16610dbdcf4e2daa7fc650a63abba32aaab5ccec707",
+    "methods": {
+      "B0": {
+        "raw_rms": 0.777005620221088,
+        "multiplier": 1.0
+      },
+      "B-pen": {
+        "raw_rms": 1.0483343014612905,
+        "multiplier": 0.7411811472142112
+      },
+      "B1": {
+        "raw_rms": 1.1552494782797382,
+        "multiplier": 0.6725868609593432
+      },
+      "B2": {
+        "raw_rms": 1.0211333112165406,
+        "multiplier": 0.7609247604462067
+      },
+      "B3": {
+        "raw_rms": 0.8462273182227708,
+        "multiplier": 0.918199641501694
+      }
+    }
+  }
+}

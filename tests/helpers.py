@@ -1,58 +1,52 @@
-"""Synthetic financial context used by component tests."""
+"""Synthetic article and question fixtures."""
 
 
-def sample(context_id="c1", ticker="AAPL", cik=320193):
+def article():
+    """Build a small source-article fixture with the requested identity and text."""
     return {
-        "id": "q1",
-        "context_id": context_id,
-        "context": "Revenue (in millions)\n| year | value |\n| 2001 | (12) |\n* footnote",
-        "table": "| year | value |\n| 2001 | (12) |",
-        "pre_text": "Revenue (in millions)",
-        "post_text": "* footnote",
-        "company_name": "Apple Inc.",
-        "company_symbol": ticker,
-        "company_cik": cik,
-        "report_year": "2002",
-        "page_number": "23",
-        "file_name": "pdf/AAPL/2002/page_23.pdf",
-        "question": "Revenue?",
-        "program_answer": "-12",
-        "original_answer": "-12",
+        "title": "Aster launch",
+        "author": None,
+        "source": "Example News",
+        "published_at": "2023-10-01T00:00:00+00:00",
+        "category": "technology",
+        "url": "https://example.org/a",
+        "body": "Aster launched its product in October. Revenue increased. " * 50,
     }
 
 
-def identity_response(*docs):
+def question():
+    """Build a question fixture with reference evidence metadata for preparation/retrieval
+    tests.
+    """
     return {
-        "aggregations": {
-            "companies": {
-                "buckets": [
-                    {
-                        "key": {"id": d["company_id"]},
-                        "identity": {
-                            "hits": {
-                                "hits": [
-                                    {
-                                        "_source": {
-                                            k: d[k]
-                                            for k in (
-                                                "company_id",
-                                                "company_name",
-                                                "ticker",
-                                            )
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        "years": {
-                            "buckets": [
-                                {"key": y}
-                                for y in d.get("report_years", [d["report_year"]])
-                            ]
-                        },
-                    }
-                    for d in docs
-                ]
-            }
-        }
+        "query": "Who launched a product?",
+        "answer": "Aster",
+        "question_type": "inference_query",
+        "evidence_list": [
+            {**article(), "fact": "Aster launched its product in October."}
+        ],
+    }
+
+
+def sample():
+    """Return the shared minimal article/question fixture set."""
+    return article()
+
+
+def passage():
+    """Build a deterministic retrieval-document fixture for search and evidence tests."""
+    return {
+        "context_id": "a-0",
+        "document_id": "a",
+        "title": "Aster launch",
+        "source": "Example News",
+        "published_at": "2023-10-01T00:00:00+00:00",
+        "author": None,
+        "category": "technology",
+        "url": "https://example.org/a",
+        "chunk_index": 0,
+        "start_char": 0,
+        "end_char": 14,
+        "token_count": 3,
+        "text": "Aster launched",
     }

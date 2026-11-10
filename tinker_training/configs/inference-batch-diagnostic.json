@@ -1,0 +1,9 @@
+{
+  "max_trajectory_attempts": 1,
+  "max_turns": 8,
+  "max_searches": 7,
+  "max_new_tokens": 512,
+  "max_context_tokens": 8192,
+  "context_mode": "append",
+  "top_k": 2
+}

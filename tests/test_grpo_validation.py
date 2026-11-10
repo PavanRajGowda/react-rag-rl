@@ -2,12 +2,13 @@ from dataclasses import replace
 
 import pytest
 
-from grpo_training.config import TrainingConfig
-from grpo_training.validation import select_validation, validation_due
-from tests.test_grpo_runner import inputs
+from tests.rollout_fixtures import inputs
+from tinker_training.config import TrainingConfig
+from tinker_training.validation import select_validation, validation_due
 
 
 def test_fixed_dev_selection_and_alignment():
+    """Verify fixed dev selection and alignment."""
     prepared = inputs(TrainingConfig())
     dev = replace(
         prepared,
@@ -23,15 +24,18 @@ def test_fixed_dev_selection_and_alignment():
 
 
 def test_validation_schedule():
+    """Verify validation schedule."""
     assert [s for s in range(51) if validation_due(s, 20, 50)] == [0, 20, 40, 50]
 
 
 def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
-    from grpo_training.records import PolicyVersion
-    from grpo_training.rollouts import template_digest
-    from grpo_training.validation import evaluate
-    from grpo_training.vllm_backend import BackendFailure, GenerationBatch
-    from tests.test_grpo_replay import ToyTokenizer
+    """Verify validation technical failure is reported without filtering."""
+    from tests.agent_fixtures import ToyTokenizer
+    from tinker_training.backend import Batch as GenerationBatch
+    from tinker_training.backend import Failure as BackendFailure
+    from tinker_training.records import PolicyVersion
+    from tinker_training.policy import template_digest
+    from tinker_training.validation import evaluate
 
     config = TrainingConfig()
     train = inputs(config)
@@ -51,6 +55,9 @@ def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
 
     class FailedBackend:
         def generate(self, requests):
+            """Return failed-generation records to verify validation reports technical
+            failures without filtering questions.
+            """
             return GenerationBatch(
                 tuple(BackendFailure(r, ValueError("bad packet")) for r in requests),
                 0.1,
@@ -61,7 +68,7 @@ def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
     )
     assert summary["technical_failures"] == 3
     assert summary["questions"] == 3
-    assert summary["number_match"] is None
+    assert summary["exact_match"] is None
     assert summary["efficiency"]["all"]["questions"] == 3
     assert summary["efficiency"]["correct_only"]["questions"] == 0
     assert summary["efficiency"]["technical_failures"] == 3
@@ -69,12 +76,13 @@ def test_validation_technical_failure_is_reported_without_filtering(tmp_path):
 
 
 def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
-    from grpo_training.records import PolicyVersion
-    from grpo_training.rollouts import template_digest
-    from grpo_training.validation import evaluate
-    from tests.test_grpo_environment import response
-    from tests.test_grpo_replay import ToyTokenizer
-    from tests.test_grpo_runner import ScriptedBackend
+    """Verify evaluation runs full agent and reuses saved questions."""
+    from tests.rollout_fixtures import ScriptedBackend
+    from tests.agent_fixtures import response
+    from tests.agent_fixtures import ToyTokenizer
+    from tinker_training.records import PolicyVersion
+    from tinker_training.policy import template_digest
+    from tinker_training.validation import evaluate
 
     config = TrainingConfig()
     train = inputs(config)
@@ -96,15 +104,15 @@ def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
     summary = evaluate(
         dev, config, policy, backend, tokenizer, lambda p: response(), tmp_path
     )
-    assert summary["number_match"] == 1
+    assert summary["exact_match"] == 1
     assert summary["questions"] == 2
-    assert backend.batch_sizes == [2, 2]
+    assert backend.batch_sizes == [1, 1, 1, 1]
     assert summary["efficiency"]["all"]["searches_per_question"]["value"] == 1
     assert summary["efficiency"]["all"]["turns_per_question"]["value"] == 2
     assert summary["efficiency"]["correct_only"]["questions"] == 2
     assert summary["efficiency"]["all"]["turn_limit"]["value"] == 0
     evaluate(dev, config, policy, backend, tokenizer, lambda p: response(), tmp_path)
-    assert backend.batch_sizes == [2, 2]
+    assert backend.batch_sizes == [1, 1, 1, 1]
     with pytest.raises(ValueError, match="identity changed"):
         evaluate(
             dev,
@@ -115,46 +123,3 @@ def test_evaluation_runs_full_agent_and_reuses_saved_questions(tmp_path):
             lambda p: response(),
             tmp_path,
         )
-
-
-def test_runner_validates_initial_periodic_final_without_extra_updates(
-    tmp_path, monkeypatch
-):
-    from grpo_training.runner import run_identity, run_training
-    from tests.test_grpo_runner import setup_run
-
-    trainer, bundle, backend, train, store, kwargs, trace = setup_run(tmp_path)
-    dev = replace(
-        train,
-        split="dev",
-        questions=tuple(replace(q, split="dev") for q in train.questions),
-    )
-    store.identity = run_identity(bundle.config, train, dev)
-    observed = []
-
-    def evaluate(dev, config, policy, *args):
-        observed.append(("validation", policy.optimizer_step))
-        return {"step": policy.optimizer_step, "number_match": 1}
-
-    kwargs["observer"].step = lambda metrics: observed.append(("step", metrics["step"]))
-    monkeypatch.setattr("grpo_training.validation.evaluate", evaluate)
-    run_training(
-        trainer,
-        bundle,
-        backend,
-        train,
-        None,
-        store,
-        validation=dev,
-        validation_interval=2,
-        **kwargs,
-    )
-    assert observed == [
-        ("validation", 0),
-        ("step", 1),
-        ("step", 2),
-        ("validation", 2),
-        ("step", 3),
-        ("validation", 3),
-    ]
-    assert trace.count("backward") == 3

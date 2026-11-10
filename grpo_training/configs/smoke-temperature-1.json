@@ -1,7 +1,0 @@
-{
-  "num_generations": 4,
-  "questions_per_update": 2,
-  "replay_microbatch_segments": 1,
-  "max_steps": 3,
-  "temperature": 1.0
-}

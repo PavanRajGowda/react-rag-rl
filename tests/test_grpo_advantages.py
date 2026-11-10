@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from grpo_training.advantages import prepare_update
-from grpo_training.config import TrainingConfig
-from grpo_training.data import Question, RewardLabel
-from grpo_training.records import (
+from tinker_training.advantages import prepare_update
+from tinker_training.config import TrainingConfig
+from tinker_training.data import Question, RewardLabel
+from tinker_training.records import (
     EpisodeRecord,
     GenerationRecord,
     GenerationRequest,
@@ -18,7 +18,7 @@ from grpo_training.records import (
     SamplingParameters,
     generation_seed,
 )
-from grpo_training.replay import GroupRequiresRetry, QuestionGroup
+from tinker_training.replay import GroupRequiresRetry, QuestionGroup
 
 
 def make_group(
@@ -30,12 +30,15 @@ def make_group(
     status=None,
     policy=None,
 ):
+    """Build valid sibling EpisodeRecord fixtures with controlled answers, statuses and
+    generation histories.
+    """
     config = config or TrainingConfig(num_generations=2, questions_per_update=1)
     policy = policy or PolicyVersion(
         config.model_revision, config.model_revision, "a" * 64, 0, "b" * 64
     )
     question = Question(
-        f"finqa_train_{number}", "Revenue?", "train", number, config.dataset_revision
+        f"multihop_train_{number}", "Revenue?", "train", number, config.dataset_revision
     )
     sampling = SamplingParameters(config.temperature, config.top_p)
     episodes = []
@@ -83,13 +86,15 @@ def make_group(
 
 
 def label(group):
+    """Return the private answer/evidence label matching the toy rollout question."""
     return RewardLabel(group.episodes[0].question.id, "42", "diagnostic-only")
 
 
 def test_one_advantage_per_episode_not_per_turn():
+    """Verify one advantage per episode not per turn."""
     group = make_group()
     prepared = prepare_update([group], [label(group)])
-    expected = 0.5 / (math.sqrt(0.5) + 1e-4)
+    expected = 0.5
     assert [s.reward for s in prepared.signals] == [1.0, 0.0]
     assert [s.advantage for s in prepared.signals] == pytest.approx(
         [expected, -expected]
@@ -101,8 +106,9 @@ def test_one_advantage_per_episode_not_per_turn():
     assert all("gold" not in key for row in prepared.rows() for key in row)
 
 
-@pytest.mark.parametrize("mode", ["group", "batch", "none"])
+@pytest.mark.parametrize("mode", ["none"])
 def test_center_each_group_and_choose_explicit_scale(mode):
+    """Verify center each group and choose explicit scale."""
     config = TrainingConfig(
         num_generations=2, questions_per_update=2, scale_rewards=mode
     )
@@ -117,6 +123,7 @@ def test_center_each_group_and_choose_explicit_scale(mode):
 
 @pytest.mark.parametrize("answers", [("42", "42"), ("9", "9")])
 def test_zero_variance_groups_remain_present(answers):
+    """Verify zero variance groups remain present."""
     group = make_group(answers=answers)
     prepared = prepare_update([group], [label(group)])
     assert len(prepared.signals) == 2 and len(prepared.rows()) == 3
@@ -124,6 +131,7 @@ def test_zero_variance_groups_remain_present(answers):
 
 
 def test_zero_token_context_failure_still_contributes_to_baseline():
+    """Verify zero token context failure still contributes to baseline."""
     group = make_group(lengths=((1,), ()))
     prepared = prepare_update([group], [label(group)])
     assert [s.reward for s in prepared.signals] == [1.0, 0.0]
@@ -131,18 +139,21 @@ def test_zero_token_context_failure_still_contributes_to_baseline():
 
 
 def test_technical_failure_rejects_update():
+    """Verify technical failure rejects update."""
     group = make_group(status="infrastructure_error")
     with pytest.raises(GroupRequiresRetry):
         prepare_update([group], [label(group)])
 
 
 def test_no_tokens_is_not_a_fake_training_batch():
+    """Verify no tokens is not a fake training batch."""
     group = make_group(lengths=((), ()))
     with pytest.raises(ValueError, match="no sampled tokens"):
         prepare_update([group], [label(group)])
 
 
 def test_label_and_batch_membership_validation():
+    """Verify label and batch membership validation."""
     group = make_group()
     with pytest.raises(ValueError, match="Labels"):
         prepare_update([group], [])
@@ -161,6 +172,7 @@ def test_label_and_batch_membership_validation():
 
 
 def test_mixed_policy_and_duplicate_questions_rejected():
+    """Verify mixed policy and duplicate questions rejected."""
     config = TrainingConfig(num_generations=2, questions_per_update=2)
     first = make_group(config)
     second = make_group(
@@ -179,20 +191,21 @@ def test_mixed_policy_and_duplicate_questions_rejected():
         {"epsilon_low": 0},
         {"epsilon_high": -1},
         {"epsilon_high": float("nan")},
-        {"vllm_importance_sampling_cap": 0.5},
     ],
 )
 def test_invalid_loss_configuration(kwargs):
+    """Verify invalid loss configuration."""
     with pytest.raises(ValueError):
         TrainingConfig(**kwargs)
 
 
 def test_imports_still_do_not_load_torch_or_trl():
+    """Verify imports still do not load torch or trl."""
     subprocess.run(
         [
             sys.executable,
             "-c",
-            "import sys; import grpo_training.advantages; import grpo_training.trainer; assert not {'torch','trl','transformers','vllm'} & sys.modules.keys()",
+            "import sys; import tinker_training.advantages; import tinker_training.loss; assert not {'torch','trl','transformers','vllm'} & sys.modules.keys()",
         ],
         check=True,
     )

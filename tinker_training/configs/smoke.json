@@ -1,0 +1,17 @@
+{
+  "reward": "exact_match_0_1",
+  "num_generations": 4,
+  "questions_per_update": 2,
+  "num_iterations": 2,
+  "max_steps": 2,
+  "max_turns": 8,
+  "max_searches": 7,
+  "max_new_tokens": 512,
+  "max_context_tokens": 8192,
+  "context_mode": "append",
+  "top_k": 2,
+  "learning_rate": 0.00001,
+  "warmup_ratio": 0.0,
+  "max_trajectory_attempts": 2,
+  "dynamic_sampling": false
+}

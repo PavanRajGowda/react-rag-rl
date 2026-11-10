@@ -1,60 +1,35 @@
-"""Lazy GPU dependencies; Transformers generation with optional weight quantization."""
+"""Per-trajectory prompt rendering and exact token history; no model execution."""
 
-import time
-
-from baseline_agent.prompt import messages
-from baseline_agent.protocol import action_complete, select_history
-
-ASSISTANT_PREFILL = "<reasoning>"
+from baseline_agent.prompt import CONTINUE, messages
+from baseline_agent.protocol import select_history
+from batched_inference.conversation import ASSISTANT_PREFILL, TokenConversation
 
 
-class QwenGenerator:
-    def __init__(self, model_path, config, precision="fp16"):
-        import torch
-        from transformers import (
-            AutoTokenizer,
-            Qwen3_5ForConditionalGeneration,
-            set_seed,
-        )
-
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA is required for this baseline")
-        if precision not in ("fp16", "int8", "nf4"):
-            raise ValueError("precision must be fp16, int8 or nf4")
-        options = {}
-        if precision != "fp16":
-            from transformers import BitsAndBytesConfig
-
-            options["quantization_config"] = (
-                BitsAndBytesConfig(load_in_8bit=True)
-                if precision == "int8"
-                else BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_use_double_quant=True,
-                )
-            )
-        set_seed(config.seed)
-        self.config = config
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path, local_files_only=True
-        )
-        self.model = Qwen3_5ForConditionalGeneration.from_pretrained(
-            model_path,
-            dtype=torch.float16,
-            device_map="cuda:0",
-            attn_implementation="sdpa",
-            local_files_only=True,
-            **options,
-        ).eval()
-        print(f"Loaded Qwen on {torch.cuda.get_device_name(0)}: {precision}", flush=True)
-
+class PromptGenerator:
+    """Tokenizer-backed prompt/history utilities shared by baseline adapters. Despite its
+    name this class never calls an LLM; the backend performs sampling.
+    """
     def make_prefix(self, question):
+        """Start a new trajectory for question text and return its initial prompt string.
+
+        Resets per-trajectory messages and token history; does not run model inference."""
         self.base_messages = messages(question)
+        self._token_history = None
+        self._append_mode = False
         return self.render_prompt([], "replace")
 
     def render_prompt(self, events, context_mode):
+        """Build the next prompt string from event dictionaries and a context mode.
+
+        Append mode preserves exact sampled token history; bounded/replace select history.
+        Call make_prefix() first. This method prepares input, not model output."""
+        self._append_mode = context_mode == "append"
+        if self._append_mode:
+            if self._token_history is None:
+                self._token_history = TokenConversation(
+                    self.tokenizer, self.base_messages
+                )
+            return self._token_history.prepare(events)[0]
         conversation = list(self.base_messages)
         for event in select_history(events, context_mode):
             if event["kind"] == "model":
@@ -63,8 +38,7 @@ class QwenGenerator:
                 conversation.append(
                     {
                         "role": "user",
-                        "content": event["text"]
-                        + "\nContinue the original question. If the evidence is sufficient, calculate and emit the final numerical answer in answer tags. Otherwise request evidence using search with company, year and query child tags. Never use search to say that no search is needed. Replace all example placeholders with actual values.",
+                        "content": event["text"] + CONTINUE,
                     }
                 )
         # The requested checkpoint is an ordinary chat model, not a
@@ -80,54 +54,21 @@ class QwenGenerator:
             + ASSISTANT_PREFILL
         )
 
-    def generate(self, prompt):
-        import torch
-        from transformers import StoppingCriteria, StoppingCriteriaList, TextStreamer
+    def encode_prompt(self, prompt):
+        """Return authoritative token IDs for the supplied rendered prompt string.
 
-        encoded = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")
-        length = encoded["input_ids"].shape[1]
-        if length + self.config.max_new_tokens > self.config.max_context_tokens:
-            raise ValueError(
-                f"Prompt {length} + generation reserve {self.config.max_new_tokens} exceeds context budget {self.config.max_context_tokens}; nothing was truncated"
-            )
-        tokenizer = self.tokenizer
-
-        class StopAtAction(StoppingCriteria):
-            def __call__(self, input_ids, scores, **kwargs):
-                text = tokenizer.decode(
-                    input_ids[0, length:],
-                    skip_special_tokens=False,
+        Append mode reuses retained IDs and verifies text; other modes tokenize the text."""
+        if getattr(self, "_append_mode", False):
+            if prompt != self._token_history.text:
+                raise ValueError(
+                    "Generation prompt differs from retained token history"
                 )
-                return action_complete(ASSISTANT_PREFILL + text)
+            return self._token_history.ids
+        return tuple(self.tokenizer.encode(prompt, add_special_tokens=False))
 
-        started = time.perf_counter()
-        verbose = getattr(self, "verbose", True)
-        if verbose:
-            print(ASSISTANT_PREFILL, end="", flush=True)
-        with torch.inference_mode():
-            output = self.model.generate(
-                **encoded,
-                max_new_tokens=self.config.max_new_tokens,
-                do_sample=True,
-                temperature=self.config.temperature,
-                top_p=0.95,
-                top_k=20,
-                repetition_penalty=1.05,
-                stopping_criteria=StoppingCriteriaList([StopAtAction()]),
-                streamer=TextStreamer(
-                    self.tokenizer, skip_prompt=True, skip_special_tokens=True
-                )
-                if verbose
-                else None,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
-        generated = output[0, length:]
-        text = ASSISTANT_PREFILL + self.tokenizer.decode(
-            generated, skip_special_tokens=True
-        )
-        return text, {
-            "input_tokens": length,
-            "assistant_prefill": ASSISTANT_PREFILL,
-            "generated_tokens": len(generated),
-            "generation_seconds": time.perf_counter() - started,
-        }
+    def record_generation(self, completion_ids, controller_output):
+        """Record sampled completion IDs and decoded controller text in append mode.
+
+        Returns None; other history modes require no update here."""
+        if getattr(self, "_append_mode", False):
+            self._token_history.record(completion_ids, controller_output)

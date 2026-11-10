@@ -1,726 +1,247 @@
-# FinanceRAG
+# ReAct RAG RL
 
-Elasticsearch BM25 retrieval for the **FinQA configuration only** of
-`G4KMU/t2-ragbench`. Each unique `context_id` is one indexed document. Text,
-Markdown tables, pre-text and post-text are preserved without chunking or
-truncation. Questions and answers are exported separately and never indexed.
+**Can reinforcement learning improve a multi-turn RAG agent's tool use?** This project fine-tunes **Qwen3.5-4B** to reason, search, and answer multi-hop questions. It compares final-answer-only supervision with local process-aware advantage shaping: reinforce acquiring reference evidence, discourage searches returning nothing new, and penalize malformed actions.
 
-For a file-by-file explanation and architecture guide, see the single
-[technical documentation README](<technical documentation/README.md>).
+The engineering component is a distributed Python application coordinating **Tinker** for hosted generation/training and **Modal-hosted Elasticsearch** for retrieval over **5.2 million Wikipedia abstracts**. Tinker owns GPU scheduling and optimization. This repository owns the agent loop, reward/advantage construction, retrieval integration, replay preparation, persistence, and evaluation.
 
-## H100 pilot and full-test evaluation
+## Full validation results
 
-The baseline uses pinned `Qwen/Qwen3.5-4B` in FP16 on one H100. The default
-pilot selects the first 50 test rows, with K=2 and replace history. Questions
-run sequentially in chunks of 10; each GPU invocation has a one-hour timeout.
-Weights download on CPU before GPU allocation. Full output traces are saved,
-but terminal reasoning streaming is off by default so the progress bar stays
-readable. Add `--verbose` for live generated text.
+Each policy completed **7,405 HotpotQA development questions × five independently seeded attempts = 37,025 trajectories**. Mean accuracy includes every attempt, including budget-exhausted trajectories; there were zero infrastructure errors. Pass@5 is oracle any-correct, not a deployed answer-selection procedure.
 
-Run the 50-example pilot from the project directory:
+| Metric | Non-fine-tuned base | EM-only | Local 0.33 | Local 0.67 |
+|---|---:|---:|---:|---:|
+| Mean normalized exact match | 38.71% | 46.01% | **46.75%** | 46.71% |
+| Mean token F1 | 49.42% | 57.75% | 59.08% | **59.25%** |
+| Oracle pass@5 | 58.06% | 60.68% | **60.88%** | 60.59% |
+| Generated tokens per trajectory | 912.07 | 624.92 | 510.27 | **440.13** |
+| Searches per trajectory | 3.18 | 3.18 | 3.02 | **2.95** |
+| Generated turns per trajectory | 4.89 | 4.31 | 4.06 | **3.97** |
+| Accepted final answer | 73.09% | 85.10% | 90.36% | **91.67%** |
+| Searches returning no new documents | 21.05% | 19.17% | 14.29% | **12.70%** |
+| Protocol-invalid turns | 17.21% | 3.69% | 1.21% | **0.59%** |
+| Full gold-document coverage | 31.03% | 35.57% | 36.16% | **36.50%** |
 
-```powershell
-$env:PYTHONIOENCODING = "utf-8"
-.\.tools\uv.exe sync --frozen --group observability
-.\.tools\uv.exe run modal deploy modal_app.py
-try {
-    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 50 --dashboard
-} finally {
-    .\.tools\uv.exe run modal app stop --yes finance-rag-search
-}
+![Validation results](reports/full-validation-results.png)
+
+### Findings
+
+- EM-only training added **7.30 percentage points** of accuracy over the base agent. Search counts barely changed, but generation became shorter and protocol errors fell.
+- Local 0.33 added **0.74 points** over EM-only, 95% paired interval **[+0.34, +1.15]**. Local 0.67 added **0.70 points**, interval **[+0.31, +1.09]**.
+- Against EM-only, local 0.67 used **29.6% fewer generated tokens**. Against the base agent it used **7.4% fewer searches**, **18.9% fewer turns**, and **51.7% fewer output tokens**.
+- The accuracy difference between 0.67 and 0.33 was **−0.04 points**, interval **[−0.41, +0.33]**. Their accuracy was not clearly different; stronger shaping's clearest benefit was efficiency.
+- Pass@5 stayed near 61% across trained policies. This is consistent with improved reliability per attempt rather than a large expansion in questions solved at least once; it does not establish the causal mechanism.
+
+Intervals use **10,000 paired percentile bootstrap resamples of whole questions**, seed 42. Each question's five attempts stay together; both policies use the same resample. Search/turn rates recompute their numerators and denominators per resample. These exploratory intervals are not multiplicity-adjusted and measure **question variation, not training-seed variation**.
+
+![Paired confidence intervals](reports/paired-differences.png)
+
+## Motivation and agent behavior
+
+A correct final answer can hide redundant searches or malformed calls. Conversely, an incorrect answer can follow useful evidence acquisition. Outcome-only supervision gives limited explicit feedback about those intermediate behaviors. The experiment tests whether deterministic process signals improve the learned agent's effectiveness and efficiency. It is a comparison of training recipes, not a claim of a new RL algorithm or proven causal credit assignment.
+
+The ReAct-style agent emits `<reasoning>...</reasoning>` followed by one `<search>query</search>` or `<answer>short answer</answer>`. Retrieval returns an `<information>` block. The prompt requires at least one search, reserves action tags for actual actions, and treats retrieved text as evidence rather than instructions. Generation stops at the closing action tag. Earlier reasoning, actions, and evidence remain in context; context overflow is explicit rather than silently evicting evidence.
+
+## Data and retrieval
+
+**HotpotQA fullwiki** provides 90,447 labeled training questions and 7,405 labeled development questions. Official hidden-test inputs are kept separate and are not scored. The retrieval corpus contains **5,233,329 introductory paragraphs** from the official October 2017 Wikipedia abstracts archive. Retrieval uses our Elasticsearch BM25 implementation, not the original benchmark retrieval system.
+
+Each abstract is one retrievable document with a `document_id`; there is no custom overlapping chunking. Reference titles map to gold document IDs for retrospective scoring. Answers, gold evidence, and question difficulty do not enter policy prompts. Sentence annotations remain diagnostic metadata: process rewards measure document acquisition, not supporting-sentence precision.
+
+Training uses a seeded, interleaved 50/50 hard–medium schedule from the official training split, excluding easy questions. Each 512-question pool contains 256 hard and 256 medium questions. Arms use the same question order. Fifteen pools cover 7,680 distinct training questions per main run.
+
+## Training methodology
+
+### Outcome-only baseline
+
+For trajectory i in sibling group q, normalized exact match gives reward O:
+
+$$
+O_i=\mathbf{1}[\text{accepted final answer matches a reference}],\qquad
+A_i^{\mathrm{out}}=O_i-\frac{1}{G_q}\sum_{j\in q}O_j.
+$$
+
+Answer normalization removes case, punctuation, articles, and excess whitespace. Wrong and unfinished trajectories receive zero reward. Technical failures are not silently scored as wrong answers. The baseline broadcasts the centered coefficient to generated tokens. There is **no standard-deviation normalization or RMS scaling**.
+
+### Local process advantage shaping
+
+For generated turn t, define:
+
+- **g = 1:** a successful search acquires at least one previously unseen gold document. Multiple new gold documents in one turn still earn one bonus.
+- **Q = 1:** a successful search returns no new document IDs, OR a search is initiated after all gold IDs have been collected. This is one OR penalty. “No new” concerns **all documents**, not just gold evidence. Successful empty results count; transport failures do not.
+- **I = 1:** the generated turn violates the action protocol, for example malformed, empty, nested, or multiple actions.
+- **M:** a token mask selecting the identifiable malformed action span. Missing action markup or ambiguous token alignment falls back to the whole generated turn.
+
+The task coefficient for token u is
+
+$$
+A_{i,t,u}^{\mathrm{local}}=A_i^{\mathrm{out}}+w_g g_{i,t}-w_q Q_{i,t}-w_p I_{i,t}M_{i,t,u}.
+$$
+
+All three weights equal **0.33** or **0.67** in the two local arms. Acquisition and search-quality adjustments apply to the entire generated turn, including reasoning. Protocol penalties target malformed action spans when identifiable. Valid answer turns retain outcome credit. Process terms are not centered, discounted, or propagated backward. These surrogate coefficients can change sign; they are not claimed to be unbiased Q-minus-V estimates.
+
+### Optimization and replay
+
+| Setting | Value |
+|---|---|
+| Model / adaptation | Qwen/Qwen3.5-4B / LoRA rank 32 |
+| Optimizer / learning rate | AdamW / 1e-5, no warm-up |
+| Rollout pool | 512 questions × 5 siblings = 2,560 trajectories |
+| Optimizer minibatches | Two 256-question minibatches, one pass, one step each |
+| Main run | 15 pools, 30 updates, 38,400 trajectories |
+| Sampling | Temperature 1.0, top-p 1.0, master seed 42 |
+| Agent limits | 8 generated turns, 7 searches, top-K 2 |
+| Token limits | 512 new tokens per turn; 8,192 context tokens |
+| PPO clip / gradient clip | 0.2 both sides / norm 1.0 |
+| Reference KL coefficient | 0.01 |
+| Active trajectory limit | 512 |
+| Checkpoints | Initial, every five updates, final |
+
+Each arm starts a new adapter from the base model. Exact sampled completion IDs and old sampling log probabilities are retained for replay. Each turn becomes one Tinker datum containing its full preceding context. Prompt and tool targets have zero direct policy-loss coefficient but still condition predictions. Sampled assistant history is not re-rendered/re-tokenized; only new observations and delimiters are encoded.
+
+Tinker calculates current-policy probabilities and executes clipped importance-weighted updates. Token coefficients are divided by the original minibatch sampled-token denominator, retained when groups are filtered. Tinker handles internal GPU microbatching. This is GRPO-style grouping/centering with a hosted PPO loss, **not an exact Search-R1 or DAPO reproduction**.
+
+Groups with all-zero task coefficients are omitted without replacement. EM-only drops tied-outcome groups; local shaping can retain those groups when a local coefficient is nonzero. Eligibility is fixed before reference scoring. For surviving completion tokens, the frozen-base adjustment is
+
+$$
+k_u=\log\pi_{\mathrm{rollout}}(y_u\mid x_u)-\log\pi_{\mathrm{base}}(y_u\mid x_u),
+\qquad A'_u=A_u+0.01(\bar{k}-k_u).
+$$
+
+The mean is over surviving completion tokens in the pool. This is a sampled log-ratio adjustment, not exact vocabulary-summed KL. Prepared rollouts and reference scores stay in memory across minibatches. Sampling weights refresh before collecting a new pool. In-training validation is disabled; final checkpoint selection is fixed in advance.
+
+![EM training](reports/em-training-curves.png)
+![Local 0.33 training](reports/local033-training-curves.png)
+![Local 0.67 training](reports/local067-training-curves.png)
+
+## Distributed system design
+
+```mermaid
+flowchart LR
+    A[Python agent tasks<br/>512 active trajectories] -->|async generation| T[Tinker hosted LLM service]
+    T -->|tokens and sampling log probabilities| A
+    A -->|tagged async requests| M[Modal SDK map stream]
+    M --> B[Modal dynamic batching]
+    B -->|deduplicated batch| E[Elasticsearch on Modal CPU]
+    E -->|msearch results| B
+    B -->|route result to caller| A
+    A --> R[Reward and replay preparation]
+    R -->|forward backward and optimizer calls| T
 ```
 
-A terminal bar shows processed questions out of 50, elapsed time, ETA, accuracy
-and infrastructure-error count. Startup/download can take time before the first
-question completes. Do not redirect output if you want the live terminal bar.
-The experiment directory is printed before work starts. Results, raw responses,
-per-turn diagnostics and an atomic run manifest are saved after each example.
-Model outputs are never supplied gold answers or gold-context indicators.
+One agent's reasoning/search loop is sequential; independent agents overlap network waits. The active limit covers **whole trajectories**, not single searches. Tinker schedules GPU work. Modal supplies remote communication and dynamic batch formation, avoiding a custom client-side batching timer/worker pool. A lightweight queue feeds one native `map.aio` stream; request IDs route results back to waiting tasks.
 
-Review `summary.json`: require 50 completed rows and zero infrastructure errors,
-and inspect `status_counts` for turn/context limits before expanding the run.
-Number Match ignores sign and powers of ten; passing scores do not guarantee
-percentage-format compliance. Inspect raw predictions as well.
+Elasticsearch runs on **4 requested CPU cores, 16 GiB memory, and a 4 GiB heap**. Modal assembles query batches; `_msearch` submits those batches, and Elasticsearch schedules their searches. Code defaults are a maximum dynamic batch of 512 and a 10 ms collection window, configurable at deployment. Diagnostic runs varied batching settings; these defaults are not universal optima.
 
-If interrupted, redeploy search and resume using the printed directory:
+Identical full request payloads are deduplicated within a server batch. `_msearch` uses 16 concurrent searches, disables unnecessary exact total-hit counting, and opts into Elasticsearch shard request caching. Returned results are mapped back to all original callers. Cache hits remain search actions; Elasticsearch owns eviction/invalidation, and cache warmth is lost on container restart.
 
-```powershell
-$run = "data/baseline/experiments/YOUR_RUN_ID"
-.\.tools\uv.exe run modal deploy modal_app.py
-try {
-    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 50 --resume $run --dashboard
-} finally {
-    .\.tools\uv.exe run modal app stop --yes finance-rag-search
-}
-```
+### Performance investigation
 
-Successful saved examples are skipped. To repeat saved infrastructure or local
-postprocessing failures, add `--retry-errors`. Incorrect numeric answers are
-never selectively rerun by this flag. Resume refuses changed model, GPU,
-instructions, generation configuration or dataset provenance. Keep the same
-`--example-index`, `--top-k`, `--context-mode` and `--max-searches` when resuming.
+Client search latency was sometimes tens of seconds despite much shorter Elasticsearch execution. Instrumentation measured SDK handoff, function entry, downstream processing, and result return where observable. The SDK reached an effective 1,000-outstanding-input limit, and substantial waiting occurred before function entry. Increasing Elasticsearch resources did not reliably resolve latency.
 
-After reviewing the pilot, extend that same experiment to the full test split:
+Bounding active trajectories reduced accumulated work:
 
-```powershell
-.\.tools\uv.exe run modal deploy modal_app.py
-try {
-    .\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --full-test --resume $run --dashboard
-} finally {
-    .\.tools\uv.exe run modal app stop --yes finance-rag-search
-}
-```
+| Live workload: 2,560 trajectories | Completion time | Trajectories/s |
+|---|---:|---:|
+| 2,560 active | 243.54 s | 10.51 |
+| 512 active, repeat 1 | 151.86 s | 16.86 |
+| 512 active, repeat 2 | 158.39 s | 16.16 |
 
-This selects all 1,147 rows, records the known blank question as skipped, and
-continues with the remaining questions. The pilot's saved results are reused;
-there are 1,146 nonblank questions overall. `--batch-size` defaults to 10 and
-`--attempts` to 3. Each failed worker stream retries only unsaved questions. After
-bounded attempts, missing results are recorded as infrastructure errors. A
-whole chunk failing repeatedly opens a circuit breaker to avoid repeated GPU
-allocation for a global failure. Per-example exceptions are recorded and the
-worker proceeds; CUDA OOM ends its chunk so later questions can start a fresh
-model invocation. This cannot prevent process kills or disk failures; durable
-raw results/checkpoints support recovery, and failure states are not hidden.
+The bounded runs averaged **approximately 36% shorter completion time**. These are live measurements with stochastic outputs and variable hosted-service conditions, not a guaranteed or randomized causal speedup. We localized concurrency-dependent congestion beyond Elasticsearch, but did **not** prove a specific Modal policy or SDK defect caused every second of delay.
 
-For a selection check without allocating any GPU or calling search:
+Separately, tuning Elasticsearch reduced time for the same **2,560 saved queries from 158.19 s to 23.53 s (6.7×)**, with identical top-K IDs/order. This direct-service benchmark excludes LLM generation. Disabling exact hit counting and increasing concurrent searches were important changes. The direct-service and end-to-end speedups must not be multiplied together.
+
+A local saved-output replay tested event-loop overhead: waits alone took 67.8 s versus 68.3 s with real CPU processing. Simulated search timers resumed median 9 ms and p95 61 ms late. This did not reproduce Modal internals, but local processing could not explain tens of seconds of remote waiting in that workload. CPU-capacity comparisons also differed in cache/container state and were inconclusive.
+
+Each main run generated approximately **170K–177K LLM calls and 122K–126K logical search requests**. Logical requests are not physical HTTP calls because of batching/deduplication.
+
+### Reliability and persistence
+
+- Final presets use one trajectory attempt and no application search retries. Elasticsearch transport retries and Modal batch-function retries are disabled; provider SDK internal network behavior is service-owned.
+- Wrong answers and budget exhaustion are scored outcomes, not retried until success. Malformed actions can receive corrective feedback within the remaining turn budget.
+- Search stream failures explicitly fail unresolved callers; a shared transport failure can affect multiple trajectories. Result IDs prevent silent response reassignment. Partial training groups require at least two usable siblings.
+- Evaluation saves each raw trajectory immediately with atomic replacement and bounded retries for transient Windows file-sharing conflicts. Reruns reuse valid saved attempts. Aggregate exports occur at completion.
+- Training retains rollout arrays in RAM and saves compact statistics. Full model/optimizer state lives in Tinker. Local progress advances after successful checkpoints; a single-writer lock protects each run.
+- Resume restores the last checkpoint and starts a fresh pool. Uncheckpointed updates and unused in-memory rollouts can be lost. This is not an exactly-once training system.
+- Modal Volumes retain the corpus and index snapshots. New containers restore snapshots to local disk instead of re-indexing 5.2M documents. Live index files are not shared between processes. The CPU service can scale to zero.
+
+## Reproduce
+
+Requires Python 3.11, [uv](https://docs.astral.sh/uv/), Tinker credentials/credit, and Modal authentication. No local CUDA or PyTorch installation is needed for the hosted path. **Training/evaluation incur model charges; indexing/deployment incur CPU/storage charges.**
 
 ```powershell
-.\.tools\uv.exe run modal run baseline_agent/modal_app.py --num-examples 50 --dry-run
-.\.tools\uv.exe run modal run baseline_agent/modal_app.py --full-test --dry-run
-```
-
-TensorBoard remains local:
-
-```powershell
-.\.tools\uv.exe run --group observability tensorboard --logdir data/baseline/experiments --host 127.0.0.1 --port 6006
-```
-
-Open `http://127.0.0.1:6006/#text`. Each generation shows its gold-context hit,
-whether that context was in its prompt, active evidence afterward and ever-hit
-status. These exact context-ID diagnostics are computed locally, not fed to the
-model; alternative valid evidence may exist. `turns.csv` provides the same data.
-In replace mode all previous model outputs and formatting feedback remain,
-while only the latest API information block is retained.
-
-GPU dependencies remain separately pinned in `baseline_agent/uv.lock` and
-`requirements.gpu.lock.txt`. The root uv environment handles orchestration,
-progress and scoring without local Torch. Old experiment snapshots were removed
-at user request; the existing five-question 4B result is a historical T4 run.
-
-## Question-only (Pretrained-Only) baseline
-
-Use the same pinned instruction-tuned 4B model without any retriever or supplied
-documents. This is a no-retrieval evaluation setting, not a switch to base-model
-weights. It allows exactly one generation, no repair turns, and no search calls.
-The model must provide its best numerical answer or Yes/No even if uncertain;
-abstention is not allowed. If it still produces unknown or nonnumeric text,
-that is recorded as a policy violation, not replaced with an invented answer.
-Gold answers remain local; invalid output counts as incorrect.
-The model may use numbers already present in the question and its prior knowledge.
-
-Start with five examples; no Elasticsearch deployment is needed:
-
-```powershell
-$env:PYTHONIOENCODING = "utf-8"
-.\.tools\uv.exe run --group observability modal run baseline_agent/modal_app.py --num-examples 5 --pretrained-only --dashboard
-```
-
-The existing progress/checkpoint/retry controls apply. Keep `--pretrained-only`
-when resuming; RAG and question-only runs cannot share a checkpoint directory.
-Retrieval metrics are not applicable for question-only runs. To compare the same
-first five against the existing 50-question RAG pilot:
-
-```powershell
-.\.tools\uv.exe run python -m baseline_agent.compare --rag data/baseline/experiments/b836aee0ff0d --pretrained data/baseline/experiments/b06a90daab88 --num-examples 5 --output reports/pretrained-only-first-five-comparison
-```
-
-The earlier abstention-allowed five-question check scored 1/5 Number Match without retrieval, versus 5/5
-for RAG on those same questions. Masco was the sole question-only pass and its
-question supplies the required numbers. This does not prove memorization or
-rule out all pretraining contamination. The interrupted larger run is archived
-outside the dashboard under `data/baseline/interrupted/`; the five completed
-outputs were reused without regenerating them.
-
-The fresh forced-answer check is experiment `41b9ecf7703e`: all five generated
-numbers with zero search calls and no abstentions, but only Masco passed NM
-(1/5). Predictions were 0, 0.85, 0, 0.00 and 1.1197. Forced guessing probes
-answer production without retrieval; correct guesses do not prove memorization,
-and low accuracy does not eliminate all training-contamination concerns.
-Results are saved separately under `reports/pretrained-forced-first-five*`.
-The policy change requires a new question-only run; old control checkpoints
-cannot be resumed under the changed prompt. RAG behavior is unchanged.
-
-## Explore with Kibana
-
-Kibana is an optional, password-protected learning environment in the separate
-Modal app `finance-rag-kibana`. It starts Elasticsearch and Kibana 8.19.3
-together and indexes the same immutable FinQA corpus as the training service.
-It is a separate copy, not a live view of a training container's cluster.
-
-```powershell
-$env:PYTHONIOENCODING = "utf-8"
-.\.tools\uv.exe run python -m finance_rag.kibana_setup
-.\.tools\uv.exe run modal deploy modal_kibana.py
-```
-
-Open the HTTPS dashboard URL printed by the deployment. Log in as `researcher`
-using the password in `data/kibana-login.txt`. Credentials are generated
-locally, ignored by Git, and supplied to Modal as a secret. Never share the
-credential files. Elasticsearch is only accessible inside this container;
-the browser uses Kibana's native login over Modal HTTPS.
-
-In **Discover**, select **FinQA contexts**. This data view has no time field,
-so there is no date window hiding older financial reports. You should see
-**2,789 documents**. Add columns such as `company_name`, `ticker`,
-`report_year`, `page_number`, and `context_id`. Expand a row to inspect the
-complete `text`, `table_markdown`, `pre_text`, `post_text`, and source metadata.
-Try the KQL filter `ticker: "AAPL" and report_year: 2002`.
-
-In **Dev Tools → Console**, run:
-
-```http
-GET finqa-*/_count
-
-GET finqa-*/_mapping
-
-GET finqa-*/_search
-{
-  "size": 5,
-  "query": {
-    "bool": {
-      "filter": [
-        {"term": {"ticker": "AAPL"}},
-        {"term": {"report_year": 2002}}
-      ],
-      "must": [{"match": {"text": "net sales"}}]
-    }
-  }
-}
-```
-
-The researcher can read FinQA and manage Kibana views/dashboards, but cannot
-modify FinQA documents. The corpus index is also write-blocked.
-
-To verify every indexed source against the corpus, not just its count:
-
-```powershell
-.\.tools\uv.exe run python -m finance_rag.kibana_verify YOUR_KIBANA_HTTPS_URL
-```
-
-Resources: two CPU cores, 6 GB memory, zero minimum containers, one maximum,
-60-second idle scale-down. Browsing and Kibana's background browser requests
-can keep the container active and incur charges. Close the tab when finished;
-for a complete stop, use:
-
-```powershell
-.\.tools\uv.exe run modal app stop --yes finance-rag-kibana
-```
-
-Redeploy `modal_kibana.py` to make it available again. Cold startup includes
-both services and can take several minutes. FinQA and its default data view
-are recreated on each start. Custom saved dashboards currently reset on a
-container restart; durable dashboard storage can be added later.
-
-Verification: all 2,789 indexed contexts match the prepared corpus byte for
-byte after canonical JSON serialization. Native authentication protects the
-document APIs. Results are recorded in `reports/kibana-verification.json`.
-The dashboard was stopped after verification to avoid ongoing runtime charges;
-use the deployment command above when you want to explore it.
-
-## Environment
-
-Python 3.11, managed by uv. Dependencies are pinned in `uv.lock`.
-The repository-local uv executable is currently `.tools/uv.exe` on Windows;
-replace `uv` below with `.\.tools\uv.exe` if uv is not on PATH.
-
-```powershell
+git clone https://github.com/PavanRajGowda/react-rag-rl.git
+cd react-rag-rl
 uv sync --frozen
-uv run pytest -q
-uv run ruff check finance_rag tests modal_app.py modal_external.py modal_kibana.py
+uv sync --project tinker_training --frozen
+uv run modal setup
+# Configure TINKER_API_KEY privately; never commit a real key.
 ```
 
-## 1. Prepare the corpus
+Download the official HotpotQA Wikipedia **abstracts** archive. Preparation verifies its checksum, loads pinned Hugging Face question splits, and streams the corpus. The full-article archive is not used here.
 
 ```powershell
-uv run python -m finance_rag.prepare --revision adf7fe1541ac37351ce1142544d8e3b43010ed92
+uv run --frozen python -m retrieval_service.hotpotqa --archive "PATH/TO/enwiki-20171001-pages-meta-current-withlinks-abstracts.tar.bz2"
+uv run --frozen modal run modal_app.py --upload
+uv run --frozen modal run modal_app.py --build-index
+uv run --frozen modal deploy modal_app.py
+uv run --frozen modal run modal_app.py --verify-deployed
 ```
 
-Output in `data/finqa`: `contexts.jsonl`, `labels.jsonl`, `manifest.json`.
-The manifest records the dataset commit, content hash, counts, context lengths,
-and split overlap. Conflicting rows for a shared context ID fail ingestion.
-The audited manifest is also recorded in `reports/finqa-manifest.json`.
-Do not treat whitespace word counts as model token counts.
-
-## 2. Start Elasticsearch and index
-
-Docker Compose is for local development only; it binds an unauthenticated
-single-node Elasticsearch instance to localhost. Docker is not installed on
-the current development machine. Alternatively, configure an existing
-Elasticsearch 8.x endpoint using the environment variables below.
+Existing service/volume names retain their `hotpotqa` dataset identity so renaming this repository does not orphan deployed indexes.
 
 ```powershell
-docker compose up -d
-$env:ELASTICSEARCH_URL = "http://localhost:9200"
-$env:ES_REPLICAS = "0"
-uv run python -m finance_rag.index
+# Local preflight; does not launch a paid training run
+uv run --project tinker_training --frozen python -m tinker_training preflight --config tinker_training/configs/em-30.json
+
+# Paid training: fresh directory per arm
+uv run --project tinker_training --frozen python -m tinker_training train --config tinker_training/configs/em-30.json --run-dir data/tinker/em
+uv run --project tinker_training --frozen python -m tinker_training train --config tinker_training/configs/process-local-30.json --run-dir data/tinker/local033
+uv run --project tinker_training --frozen python -m tinker_training train --config tinker_training/configs/process-local-w067-30.json --run-dir data/tinker/local067
+
+# Paid base evaluation, all development questions
+uv run --project tinker_training --frozen python -m tinker_training baseline --config tinker_training/configs/inference-batch-diagnostic.json --run-dir data/tinker/eval-base --start 0 --count 7405 --repetitions 5 --batch-size 512 --stream-attempts 1
+
+# Paid trained evaluation, using your own checkpoint pointer
+$state = Get-Content data/tinker/local067/progress.json | ConvertFrom-Json
+uv run --project tinker_training --frozen python -m tinker_training baseline --config tinker_training/configs/inference-batch-diagnostic.json --run-dir data/tinker/eval-local067 --checkpoint $state.checkpoint --start 0 --count 7405 --repetitions 5 --batch-size 512 --stream-attempts 1
+
+# CPU tests; no paid hosted calls
+uv run --frozen python -m pytest -q
+# Offline training plots
+uv run --no-project --with matplotlib --with numpy python -m experiments.plot_training_curves data/tinker/em
+# Offline paired evaluation analysis; reads your saved raw trajectories
+uv run --no-project --with numpy python -m experiments.compare_evaluations --before data/tinker/eval-base --after data/tinker/eval-local067 --output data/analysis/local067-vs-base.json
 ```
 
-For Elastic Cloud, set `ELASTICSEARCH_URL` to its HTTPS endpoint and set
-`ELASTIC_API_KEY`. Use separate indexing and read-only serving API keys.
-For a VM, use authenticated TLS Elasticsearch; do not expose the development
-Compose configuration publicly. A single-node VM needs `ES_REPLICAS=0`.
+Match question IDs, repetition seeds, prompts, budgets, and retrieval settings across evaluations. Without an explicit checkpoint, evaluation samples the base model. Private checkpoint paths, account IDs, raw traces, datasets, and credentials are not distributed here.
 
-The corpus version remains `finqa-301676584646`; the current index name is
-`finqa-301676584646-search-v4`, including the company-resolution schema version.
-Existing indexes with keyword-only company names must be reindexed into the new
-name. Modal containers build it automatically after a fresh deployment.
-The indexer verifies the document count and blocks future writes. It refuses
-to overwrite an existing version. A failed partial build must be inspected
-and removed explicitly before retrying.
+## Code map
 
-## 3. Serve and query
+| Path | Responsibility |
+|---|---|
+| `baseline_agent/` | Shared controller, prompt, protocol, grading and evaluation persistence |
+| `batched_inference/` | Async execution and exact append-only token conversations |
+| `tinker_training/` | Hosted sampling, sibling groups, local credit, KL, replay packing and optimizer/checkpoint loop |
+| `retrieval_service/`, `modal_app.py` | HotpotQA preparation, dynamic batching and persistent Elasticsearch |
+| `experiments/` | Offline evaluation analysis and training plots |
+| `tests/` | CPU tests using fake hosted clients |
+| `reports/` | Result graphs only; methodology/findings live in this README |
 
-Environment variables are read from the process; `.env` is not auto-loaded.
+## Limitations
 
-```powershell
-$env:SEARCH_API_TOKEN = "your-long-random-token"
-uv run uvicorn finance_rag.api:app --host 127.0.0.1 --port 8000
-```
+One training seed per arm and 30 updates make this a short fine-tuning study. Local shaping changes coefficient magnitude and group retention as well as feedback location; results do not isolate temporal allocation. Gold-document signals are privileged supervision and imperfect usefulness proxies. No-new IDs do not prove semantic redundancy; coverage does not prove evidence use.
 
-`POST /v1/search`, with `Authorization: Bearer <SEARCH_API_TOKEN>`:
+The development set is the evaluation benchmark. No official hidden-test result, independent training-seed replication, or acquisition-only/penalties-only ablation is claimed. A historical broadcast pilot used a different reward formulation and is not a matched allocation control.
 
-```json
-{"ticker":"AAPL","year":2002,"query":"net sales 2001 2000","top_k":5}
-```
+Raw paid runs remain local under ignored `data/`. Public figures summarize them; exact stochastic outputs, prices, and timing need not reproduce. No publication or algorithmic novelty is claimed.
 
-`year` always means **report year**, not the year of a table value. Provide
-company_name, ticker, or both. Both must identify the same company. Names use
-Elasticsearch's standard analyzed text matching: `apple` can match `Apple Inc.`.
-For multiple words, every analyzed word must match the issuer name. Tickers
-remain case-insensitive exact matches. All resolution and retrieval use
-Elasticsearch. If no issuer name matches, search document text using company
-name plus query across all issuers and report years. The response explicitly
-explains that both filters were relaxed and includes each result's actual issuer
-and report year. No synonym extraction, synonym matching, or local text scan is
-performed.
+## References
 
-Ambiguous issuer names return candidate names, tickers and available years.
-Known issuers lacking the requested year return `report_year_unavailable`;
-they never silently switch to unrestricted retrieval. Responses include
-`match_method`, `message`, requested identifiers, applied filters and full
-contexts. Empty searches use `code: no_results`; backend failures remain errors.
-`top_k` defaults to two (allowed range 1–10). Financial formatting is preserved.
+- [HotpotQA and official corpus](https://hotpotqa.github.io/)
+- [ReAct](https://arxiv.org/abs/2210.03629)
+- [DeepSeekMath / GRPO](https://arxiv.org/abs/2402.03300)
+- [Search-R1](https://github.com/PeterGriffinJin/Search-R1)
+- [Tinker documentation](https://tinker-docs.thinkingmachines.ai/)
+- [Modal dynamic batching](https://modal.com/docs/guide/dynamic-batching)
 
-Schema v4 removes the derived organization field. Existing indices remain
-untouched; reindex external Elasticsearch or redeploy Modal to build v4:
-
-```powershell
-.\.tools\uv.exe sync --frozen
-.\.tools\uv.exe run python -m finance_rag.index
-# Temporary CPU-only integration check:
-.\.tools\uv.exe run modal run modal_app.py --verify-resolution
-# Deploy the search service and optional Kibana copy:
-.\.tools\uv.exe run modal deploy modal_app.py
-.\.tools\uv.exe run modal deploy modal_kibana.py
-```
-
-The index command requires a running Elasticsearch endpoint. Modal indexes the
-original prepared contexts at startup. No organization-preparation command or
-artifact is required. Stop deployments when finished to avoid further usage.
-
-The API verifies local corpus integrity and remote index metadata at startup.
-Protected `/health` checks backend connectivity; `/docs` exposes the schema.
-
-## 4. Measure retrieval
-
-```powershell
-uv run python -m finance_rag.evaluate --split dev
-```
-
-This baseline uses **gold company and report year filters** and the question
-as query. It reports Recall@5, Recall@10, MRR@10 and per-question ranks. These
-are retrieval metrics under oracle metadata, not end-to-end agent scores.
-Use dev for tuning; keep test for final evaluation. Actual audit: no shared
-context IDs across splits, but many shared reports. A report-disjoint research
-evaluation is still needed, alongside the official splits.
-The audit also found one blank test question; labels are preserved, and the
-evaluator explicitly reports its exclusion rather than inventing a query.
-
-## 5. Run Elasticsearch on Modal CPU containers (default)
-
-The default deployment uses the official Elasticsearch 8.19.3 image on Modal,
-with Python added. No Docker daemon or VM is needed. Elasticsearch runs as
-UID 1000, listens only on the container's loopback interface, and is accessed
-through an authenticated Modal class method. There is no public HTTP endpoint
-in this mode and no `finance-search` secret is required.
-
-```powershell
-uv export --frozen --no-dev --no-emit-project --output-file requirements.lock.txt --quiet
-uv run modal run modal_app.py
-uv run modal run modal_app.py --evaluate --split dev
-uv run modal deploy modal_app.py
-uv run modal run modal_app.py --verify-deployed
-uv run modal run modal_app.py --verify-companies
-```
-
-On Windows, set `$env:PYTHONIOENCODING = "utf-8"` before using the Modal CLI.
-
-Each CPU container starts Elasticsearch and indexes all 2,789 intact contexts
-before accepting searches. Index files are local to that container; they are
-rebuilt on cold start from the versioned bundled corpus. This deliberately
-avoids sharing live Lucene files across containers or committing a writable
-index to a Modal Volume. The search service bundles contexts and the manifest,
-**not QA labels**. Evaluation sends only search arguments from the local caller.
-
-Resources: two CPU cores, 4 GB RAM, 1 GB Java heap, up to 16 concurrent calls,
-one container maximum, scale to zero after 300 idle seconds. Cold starts cost
-startup/indexing time; training should issue a warmup call before GPU rollouts.
-The container's CPU/memory runtime and idle grace period incur Modal charges.
-
-Call from a Modal GPU function or a locally authenticated Modal client:
-
-```python
-import modal
-
-SearchService = modal.Cls.from_name("finance-rag-search", "SearchService")
-search = SearchService()
-result = await search.search.remote.aio({
-    "ticker": "AAPL", "year": 2002,
-    "query": "net sales 2001 2000", "top_k": 5,
-})
-```
-
-The response has `status="ok"` and complete evidence, or a structured argument
-error. Infrastructure failures raise rather than impersonating empty results.
-Deployment preserves the same company/year/query schema as the HTTP API.
-
-## Alternative: external Elasticsearch and HTTP API
-
-The original deployment is retained in `modal_external.py` under the separate
-app name `finance-rag-search-http`. For Elastic Cloud or a VM, index using
-`finance_rag.index`, configure the `finance-search` Modal secret with
-`ELASTICSEARCH_URL`, `ELASTIC_API_KEY` and `SEARCH_API_TOKEN`, then deploy
-`modal_external.py`. This uses an always-warm HTTP wrapper around a persistent
-external index. Do not deploy it when using the private default above.
-
-## Current status and remaining steps
-
-- Complete: uv environment, locked dependencies, real dataset audit/export,
-  indexer, API, retrieval evaluator, local Compose and Modal deployment code.
-- Modal search and Kibana have been deployed and verified, then stopped to
-  avoid ongoing runtime charges. Deployment definitions and historical
-  verification reports are retained in the repository.
-- Real Elasticsearch indexing and source-preservation checks passed on Modal.
-  Development baseline (883 questions, gold company/year filters): Recall@5
-  99.43%, Recall@10 100%, MRR@10 0.9363. Local-to-Modal warm request latency at
-  concurrency eight: median 177 ms, p95 212 ms. First call including startup
-  took 42 seconds. These are retrieval metrics, not LLM answer accuracy.
-- A second Modal CPU container successfully called the deployed search class:
-  first call 41.0 seconds, repeated warm call 212 ms. Verification is recorded
-  in `reports/modal-deployed.json`; no GPU was required for this connectivity
-  check. Actual GPU rollout throughput remains to be measured.
-- Forty-four component tests and lint checks pass with observability dependencies. Startup requires
-  `-XX:+StartAttachListener` for Java self-attach under Modal's gVisor runtime;
-  Elasticsearch's entitlement protections remain enabled.
-- The default hosting target is Modal CPU containers; VM provisioning is no
-  longer required. Review measured cold-start and retrieval latency before
-  increasing rollout concurrency.
-- Later: company aliases, batch search, report-disjoint evaluation, model
-  token-budget checks and Search-R1-style training integration. The model
-  should generate tool arguments; hidden gold metadata must not fill them in
-  during end-to-end experiments. Keep retrieved observations out of policy
-  generated-token loss.
-
-## Local evaluation dashboard
-
-Start the read-only dashboard from the project root:
-
-```powershell
-.\.tools\uv.exe run --frozen python -m baseline_agent.dashboard
-```
-
-Open http://127.0.0.1:8501. Stop with Ctrl+C in that terminal. This uses saved
-experiment files only; no Modal, model inference, or Elasticsearch is started.
-No extra dependencies are needed. Select a primary run and optionally a comparison
-run. Click an evidence/outcome matrix cell to inspect its questions, then open a
-question for model outputs, exact generation inputs, API responses and context.
-Use Refresh runs after new checkpoints are saved. Export diagnostics as CSV.
-
-Number Match retains saved benchmark scores. Signed numeric and exact text match
-are supplementary diagnostics. Reference retrieval means canonical context-ID
-match, not proof of complete evidence. Active-at-answer is N/A without a final
-answer. Format checks use the current parser, not a replay of historical parser
-code. Reference-excluding issuer/year filters compare against optional local
-corpus metadata; these are evaluation diagnostics, not live retrieval fallbacks.
-The dashboard never modifies original runs or sends diagnostics to the model.
-Use `--port 8502`, `--experiments PATH`, or `--corpus PATH` for alternate locations.
-
-### Original FinQA reasoning labels
-
-The dashboard now groups performance by original gold-program operation count:
-1, 2, and 3+ operations, with clickable question filters and a paired-run table.
-Question details include the original question, program, source ID and support IDs.
-These describe numerical reasoning steps, not multiple retrieval hops.
-
-Rebuild the evaluation-only join (public downloads, no model inference):
-
-```powershell
-.\.tools\uv.exe run --frozen python -m baseline_agent.finqa_reasoning --download
-```
-
-Original files are pinned under `data/finqa_original/`; the sidecar is
-`data/finqa/reasoning_annotations.json` and the tracked audit is
-`reports/finqa-reasoning-join.json`. All 8,281 rows match by split/index, exact
-source report/page and original answer, with null/blank answers normalized.
-The join checks one-to-one IDs and agreement between program operation count and
-annotated steps. It does not certify reformulated question meaning. Dashboard
-labels require matching dataset revision, question and gold answer; otherwise
-they display unavailable. Existing prediction files and scores remain unchanged.
-
-### Numerical dependency depth and search recovery
-
-The dashboard separates three labels: total gold-program operation count,
-numerical reasoning dependency depth, and later-search reference recovery.
-Depth is the longest chain of operation nodes ending at the final program
-result. Direct calculation is depth 1; depth 2+ is dependent multistep numerical
-reasoning. References #0, #1, etc. connect operations. Parallel operations do not
-increase depth until their results feed another operation; unused branches are
-excluded from final-answer depth. Invalid/self/forward references are rejected.
-These are labels from the original gold program, not minimal reasoning depth or
-proof that multiple searches are required. Question details show dependencies.
-
-Later-search reference recovery means first search missed the canonical context
-and a later search found it. The denominator is searched questions with a first-
-search miss; no-search questions are excluded. Recovery accuracy uses recovered
-questions only. Neither metric establishes true multihop retrieval requirements.
-
-## GRPO implementation review: Commit 1 only
-
-The `grpo_training/` package currently provides configuration, train/dev data
-boundaries and local preflight provenance. It does not contain a trainer or
-launch GPU jobs. Run the CPU-only inspection from the project root:
-
-```powershell
-.\.tools\uv.exe run --frozen python -m experiments.grpo.inspect
-.\.tools\uv.exe run --frozen python -m experiments.grpo.inspect --config grpo_training/configs/smoke.json --train-count 4 --dev-count 4
-```
-
-Add `--output-root data/grpo/preflight` to save a local review record. It refuses
-to overwrite an existing record of the same identity. All records say
-`execution_status: not_started`; these are not training checkpoints.
-
-The root environment runs inspection and CPU tests. The separate
-`grpo_training/pyproject.toml` + `uv.lock` target Linux x86_64 Python 3.11 for
-future Modal training. Do not sync that GPU environment on Windows. Check its
-lock without installing it using:
-
-```powershell
-.\.tools\uv.exe lock --project grpo_training --check
-```
-
-The training lock resolves TRL 1.15.0, vLLM 0.22.0, Torch 2.11.0,
-Transformers 5.5.4, PEFT 0.18.1, Accelerate 1.12.0 and datasets 4.8.5.
-Resolution is not an import/kernel/adapter-compatibility test; those checks
-remain in later reviewed commits. The baseline environment is unchanged.
-See `technical documentation/README.md` for the file-by-file review guide.
-
-### GRPO review Commit 2: outcome reward
-
-`grpo_training/rewards.py` wraps the existing Number Match scorer without changing
-its epsilon, sign/scale handling or Yes/No mapping. Accepted final answers earn
-1 for a match and 0 otherwise. Unfinished model episodes earn 0; infrastructure
-and postprocessing failures return an unscorable `None`. Invalid gold labels or
-mismatched question IDs raise errors. No additional format or retrieval reward is
-included. See the technical README for the status table and review details.
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_rewards.py -q
-```
-
-This module does not call a model, query Elasticsearch, retry groups or run GRPO.
-
-### GRPO review Commit 3: independent search episodes
-
-`grpo_training/environment.py` accepts generated text and an injected search API
-callable; it does not generate text or instantiate a network/cloud client.
-SearchEpisode preserves baseline XML parsing, formatting feedback, evidence
-replacement, candidate/year feedback, and turn/search limits. Each episode has
-independent state. Known API resolution errors are observations; exhausted
-transport failures or malformed/mismatched API responses terminate unscorable.
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_environment.py -q
-```
-
-The future rollout backend must check token budgets before generation and enforce
-transport deadlines. This step only tests scripted local calls; token records,
-model integration, batching and live service verification remain for later review.
-
-### GRPO review Commit 4: token records and CPU replay contracts
-
-`grpo_training/records.py`, `rollouts.py`, and `replay.py` record complete episodes
-and construct per-generation teacher-forcing inputs. They do not run a model or
-calculate GRPO advantages, importance weights, gradients or optimizer updates.
-Each generation retains its actual prompt IDs and sampled token IDs/probabilities;
-replacement history is replayed per turn, never as a stitched growing transcript.
-The backend must report the expected prompt IDs, policy ID and sampling settings.
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_replay.py -q
-```
-
-Tests use an injected toy tokenizer and normalized toy probability model only.
-Real tokenizer/vLLM output, EOS capture and weight-sync verification remain for
-the separately reviewed Step 5. No GPU or live search is started here.
-
-### GRPO review Commit 5: model and vLLM adapters
-
-`grpo_training/model.py` loads the pinned Qwen3.5-4B checkpoint in BF16,
-freezes base weights and attaches LoRA to selected text attention/MLP projections.
-`grpo_training/vllm_backend.py` accepts batches of prepared generation requests,
-returns original sampled tokens and their logprobs, and explicitly loads exported
-adapter versions before generation. These are library functions, not a training
-entrypoint. Importing them does not allocate a GPU or download a model.
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_model_backend.py -q
-```
-
-These 22 CPU tests use mocked engines and weights. The real Linux/CUDA model
-load, Qwen3.5 LoRA mapping, adapter synchronization and memory usage remain
-unverified until a separately approved GPU smoke test. No paid job was launched.
-The GRPO loss/trainer and Modal training entrypoint remain later review steps.
-
-### GRPO review Commit 6: outcome advantages and TRL replay loss
-
-`grpo_training/advantages.py` scores complete question groups and computes one
-outcome advantage per trajectory. `grpo_training/trainer.py` captures fixed
-old-policy logprobs, constructs per-turn loss inputs and accumulates gradients
-through TRL 1.15.0's native DAPO objective. Every turn inherits its trajectory's
-advantage. Normalization uses all sampled tokens in the logical update, rather
-than averaging unequal turn losses. It supports single-process replay initially.
-
-New explicit settings are `epsilon_low=0.2`, `epsilon_high=0.28`, and
-`vllm_importance_sampling_cap=2.0`. The bridge initially requires `beta=0`,
-`top_p=1`, no generation top-k/repetition penalty and zero adapter dropout.
-It keeps truncated samples and zero-variance groups; this is not the full DAPO
-recipe with dynamic sampling. Built-in `trainer.train()` is blocked because its
-ordinary transcript path would bypass our independent episode/replay contracts.
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_advantages.py -q
-```
-
-Real TRL/CPU autograd tests run separately so GPU/ML packages do not alter the
-root environment. To reproduce on Windows, create an ignored CPU environment:
-
-```powershell
-.\.tools\uv.exe venv data/grpo-cpu-env --python 3.11
-.\.tools\uv.exe pip install --python data/grpo-cpu-env/Scripts/python.exe torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
-.\.tools\uv.exe pip install --python data/grpo-cpu-env/Scripts/python.exe trl==1.15.0 transformers==5.5.4 accelerate==1.12.0 peft==0.18.1 datasets==4.8.5 pytest
-.\data\grpo-cpu-env\Scripts\python.exe -m pytest tests/test_grpo_advantages.py tests/test_grpo_trainer.py -q
-```
-
-The root test suite intentionally skips the optional Torch/TRL test module when
-those packages are absent. Its separate tests exercise the real TRL objective
-with a tiny CPU model; the fused-head wrapper test substitutes a reference CPU
-kernel for CUDA-only Triton. Qwen/vLLM kernels remain unverified on GPU. This
-commit does not run a model rollout, step a production optimizer or launch Modal;
-the job loop, checkpoint/resume and cloud integration remain for later review.
-
-### GRPO review Commit 7: Modal runner and resumable checkpoints
-
-`grpo_training/runner.py` now connects collection, rewards, old-policy capture,
-replay/backward, gradient clipping, optimizer/scheduler steps and adapter exports.
-`collection.py` batches independent trajectories and allows four concurrent search
-calls while applying bounded retries to whole failed question groups.
-`checkpoints.py` saves a verified checkpoint after every successful optimizer step,
-including partially reused rollout batches. `modal_app.py` defines the H100 job,
-CPU model/search preflight, persistent volumes and an exclusive run-writer lock.
-See the technical README for the complete file/call walkthrough and recovery rules.
-
-The implementation is ready for code review; the image build, Qwen/vLLM adapter
-mapping, GPU memory behavior and numerical agreement have NOT been tested on H100.
-No paid job was launched. The commands below are for a separately approved smoke
-run after review, not evidence that GPU compatibility has passed.
-
-```powershell
-$env:PYTHONIOENCODING = "utf-8"
-.\.tools\uv.exe run --frozen modal run -m grpo_training.modal_app --run-id grpo-smoke-001
-```
-
-The default reviewed smoke config is 3 optimizer steps, 2 questions per update,
-4 complete trajectories per question, retrieval K=2, and one replay iteration.
-It selects the first 16 source rows from the prepared training split
-(blank questions remain skipped). The test set is not used. Console output shows
-each completed optimizer step, reward, loss, gradient norm and checkpoint name.
-The existing `finance-rag-search` deployment must be callable; a CPU preflight
-checks the expected retrieval corpus/schema before the H100 function starts.
-
-To resume an interrupted run, use the same run ID, config, source code and data
-selection:
-
-```powershell
-.\.tools\uv.exe run --frozen modal run -m grpo_training.modal_app --run-id grpo-smoke-001 --resume
-```
-
-State is stored in Modal Volume `finance-rag-grpo-runs`, under the run ID. `run.json`
-binds config, selected question/label hashes and training sources. `latest.json`
-points to a completed hash-verified checkpoint. `events/` contains timestamped
-metrics and full rollout attempts, including failed search attempts. The model
-cache is a separate volume, `finance-rag-grpo-cache`.
-
-Normal completion/failure ends a single-use GPU container. To stop a running job,
-use the actual app ID (`ap-...`) printed by Modal:
-
-```powershell
-.\.tools\uv.exe run --frozen modal app stop --yes ap-REPLACE_WITH_ACTUAL_APP_ID
-```
-
-Recovery uses the latest completed checkpoint, not an in-flight optimizer step.
-GPU OOM, malformed generation output, probability mismatch and optimizer failures
-abort; they are not treated as incorrect answers or silently retried. A hard
-termination may leave a writer lock in `finance-rag-grpo-writers`. Verify the old
-job stopped before clearing that run ID's lock; locks are never automatically
-stolen. If startup fails before any checkpoint exists, use a new run ID. A
-corrupt latest checkpoint is rejected rather than silently rolling backward.
-
-CPU checks (no Modal invocation):
-
-```powershell
-.\.tools\uv.exe run --frozen python -m pytest tests/test_grpo_runner.py tests/test_grpo_modal.py -q
-.\data\grpo-cpu-env\Scripts\python.exe -m pytest tests/test_grpo_advantages.py tests/test_grpo_trainer.py tests/test_grpo_checkpoints.py -q
-```
-
-The isolated CPU environment setup is in Commit 6's section above. GPU numerical
-and memory validation remains necessary before an actual research training run.
-
-### Commit 8: live GRPO observability
-
-Training now writes raw measurements at every optimizer step. The dashboard
-refreshes every five seconds and defaults to a 20-step display window; smoothing
-does not change stored measurements. Start it in a separate PowerShell window:
-
-```powershell
-.\.tools\uv.exe run --frozen python -m grpo_training.dashboard --run-dir data/grpo/grpo-smoke-001 --modal-run-id grpo-smoke-001 --port 8502
-```
-
-Open http://127.0.0.1:8502/. This mirrors existing files from the run volume; it
-never launches a training worker. Omit `--modal-run-id` for already-local results.
-The run ID must match your actual run. An optional second window provides
-TensorBoard over the mirrored event files:
-
-```powershell
-.\.tools\uv.exe run --frozen --group observability tensorboard --logdir data/grpo/grpo-smoke-001/tensorboard --port 6007
-```
-
-The dashboard includes loss/gradients, clipping and importance ratios, reference
-KL, group reward variation, answer/format/retrieval quality, repeated searches,
-evidence-versus-answer outcomes, timing, episode traces and CSV downloads.
-Reward and behavior summaries count each fresh rollout once, even when several
-optimizer steps reuse it. Rate windows pool numerators and denominators.
-Reference KL is measured at step zero and after every optimizer update on fixed
-training-question prefixes, against the original pretrained model with adapters
-disabled. It is a diagnostic; beta remains zero. See the technical README for
-precise definitions and timing boundaries. GPU overhead/compatibility still need
-the separately approved H100 smoke run.
+Wikipedia source material retains its license, including the official archive's CC BY-SA 4.0 terms. Corpus/dataset files are not redistributed. No code license is added without the author's choice.
