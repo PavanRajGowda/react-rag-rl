@@ -424,7 +424,7 @@ $$
 \sum_{(i,t,u)\in\mathcal{S}}
 \min\!\left[
 r_{i,t,u}(\theta)\,\widetilde{A}_{i,t,u},
-\operatorname{clip}\!\left(r_{i,t,u}(\theta),1-\epsilon,1+\epsilon\right)
+\mathrm{clip}\!\left(r_{i,t,u}(\theta),1-\epsilon,1+\epsilon\right)
 \widetilde{A}_{i,t,u}
 \right],
 \qquad \epsilon=0.2.
